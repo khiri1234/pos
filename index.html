@@ -678,9 +678,12 @@ function openAddItemModal(productId){
       <button class="btn primary" style="flex:1;" onclick="confirmAddItem('${p.id}')">Add to bill</button>
     </div>
   </div></div>`;
-  const onEnter = e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmAddItem(p.id); } };
-  document.getElementById('addQty').addEventListener('keydown', onEnter);
-  document.getElementById('addPrice').addEventListener('keydown', onEnter);
+  document.getElementById('addQty').addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); document.getElementById('addPrice').focus(); }
+  });
+  document.getElementById('addPrice').addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); confirmAddItem(p.id); }
+  });
   document.getElementById('addQty').focus();
 }
 function confirmAddItem(productId){
