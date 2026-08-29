@@ -64,6 +64,12 @@
   .scan-row{display:flex;gap:10px;margin-bottom:14px;}
   .scan-row input{flex:1;padding:13px 16px;border-radius:10px;border:2px solid var(--till);font-size:15px;font-family:var(--mono);background:#fff;outline:none;}
   .scan-row input:focus{box-shadow:0 0 0 3px rgba(46,125,91,.2);}
+  .sort-row{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
+  .sort-row>span{font-size:12px;font-weight:700;color:var(--text-dim);}
+  .sort-chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:12px;font-weight:600;color:var(--text-dim);}
+  .sort-chip:hover{border-color:var(--till);color:var(--till-dark);}
+  .sort-chip.active{border-color:var(--till);color:#fff;background:var(--till);}
+  .sort-chip.active .sort-ind{color:#fff;}
   .prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:520px;overflow:auto;padding-right:4px;}
   .prod-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;text-align:left;transition:.12s;}
   .prod-card:hover{border-color:var(--till);transform:translateY(-1px);}
@@ -200,6 +206,13 @@
           <div class="scan-row">
             <input id="scanInput" type="text" placeholder="Scan barcode or type product name, then Enter…" autocomplete="off">
             <button class="btn primary" onclick="handleScanSubmit()">Add</button>
+          </div>
+          <div class="sort-row">
+            <span>Sort:</span>
+            <button class="sort-chip" data-field="name" onclick="sortSaleBy('name')">Name<span class="sort-ind" id="saleSortInd_name"></span></button>
+            <button class="sort-chip" data-field="price" onclick="sortSaleBy('price')">Price<span class="sort-ind" id="saleSortInd_price"></span></button>
+            <button class="sort-chip" data-field="stock" onclick="sortSaleBy('stock')">Stock<span class="sort-ind" id="saleSortInd_stock"></span></button>
+            <button class="sort-chip" data-field="category" onclick="sortSaleBy('category')">Category<span class="sort-ind" id="saleSortInd_category"></span></button>
           </div>
           <div class="prod-grid" id="prodGrid"></div>
         </div>
@@ -582,10 +595,17 @@ function handleScanSubmit(){
 }
 
 /* ---------- Products grid ---------- */
+let saleSortField = null;
+let saleSortDir = 1;
+function sortSaleBy(field){
+  if(saleSortField===field) saleSortDir *= -1;
+  else { saleSortField = field; saleSortDir = 1; }
+  renderProducts();
+}
 function renderProducts(){
   const grid = document.getElementById('prodGrid');
   grid.innerHTML='';
-  inventory.forEach(p=>{
+  sortItemsByField(inventory, saleSortField, saleSortDir).forEach(p=>{
     const div = document.createElement('button');
     div.className='prod-card';
     div.onclick = ()=>{ openAddItemModal(p.id); };
@@ -593,6 +613,12 @@ function renderProducts(){
       <div class="pr">${money(p.price)}</div>
       <div class="st ${p.stock<=5?'low':''}">${p.stock<=0?'Out of stock':p.stock+' in stock'}</div>`;
     grid.appendChild(div);
+  });
+  document.querySelectorAll('.sort-chip').forEach(btn=>{
+    const f = btn.dataset.field;
+    btn.classList.toggle('active', saleSortField===f);
+    const ind = document.getElementById('saleSortInd_'+f);
+    if(ind) ind.textContent = saleSortField===f ? (saleSortDir===1?'▲':'▼') : '';
   });
 }
 
@@ -858,6 +884,16 @@ function printReceipt(sale, isDuplicate){
 
 /* ---------- Inventory ---------- */
 /* ---------- Inventory sorting ---------- */
+function sortItemsByField(list, field, dir){
+  if(!field) return list;
+  return list.slice().sort((a,b)=>{
+    if(field==='name' || field==='barcode' || field==='category'){
+      const av = String(a[field]||'').toLowerCase(), bv = String(b[field]||'').toLowerCase();
+      return av<bv ? -dir : av>bv ? dir : 0;
+    }
+    return ((Number(a[field])||0) - (Number(b[field])||0)) * dir;
+  });
+}
 let invSortField = null;
 let invSortDir = 1; // 1 = ascending, -1 = descending
 function sortInventoryBy(field){
@@ -866,15 +902,7 @@ function sortInventoryBy(field){
   renderInventory();
 }
 function sortedInventory(){
-  if(!invSortField) return inventory;
-  const field = invSortField, dir = invSortDir;
-  return inventory.slice().sort((a,b)=>{
-    if(field==='name' || field==='barcode' || field==='category'){
-      const av = String(a[field]||'').toLowerCase(), bv = String(b[field]||'').toLowerCase();
-      return av<bv ? -dir : av>bv ? dir : 0;
-    }
-    return ((Number(a[field])||0) - (Number(b[field])||0)) * dir;
-  });
+  return sortItemsByField(inventory, invSortField, invSortDir);
 }
 function renderInventory(){
   const tb = document.getElementById('invTable');
