@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --ink:#1B2320;
@@ -299,23 +302,123 @@
 <div id="modalRoot"></div>
 
 <script>
-/* ---------- Storage helpers (personal, per-user) ---------- */
-const hasClaudeStorage = (typeof window.storage!=='undefined' && window.storage && typeof window.storage.get==='function');
+/* ---------- Firebase (cross-device persistence + live sync) ----------
+   All tills for this store share one Firestore project:
+     pos/meta      -> inventory, heldBills, shift, zHistory, invoiceCounter, authHash
+     pos_sales/*   -> one document per sale (never overwritten wholesale, so two
+                      tills ringing up sales at the same instant can't clobber
+                      each other)
+     pos_returns/* -> one document per return
+   Stock counts and invoice numbers are updated through Firestore transactions
+   so concurrent sales on different devices can't oversell stock or collide
+   on an invoice number. */
+const firebaseConfig = {
+  apiKey: "AIzaSyCP_TjAnxRw7DVfb6wpiK4hSUEFOOq5GnU",
+  authDomain: "khoorytraders-e6e92.firebaseapp.com",
+  projectId: "khoorytraders-e6e92",
+  storageBucket: "khoorytraders-e6e92.firebasestorage.app",
+  messagingSenderId: "473982541743",
+  appId: "1:473982541743:web:b931ad27f5a4025858595a"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('Offline persistence unavailable:', e.code));
+
+const authReady = new Promise((resolve, reject)=>{
+  const unsub = auth.onAuthStateChanged(user=>{
+    if(user){ unsub(); resolve(user); }
+  }, reject);
+  auth.signInAnonymously().catch(e=>{ console.error('Anonymous sign-in failed', e); reject(e); });
+});
+
+const metaRef = ()=> db.collection('pos').doc('meta');
+const salesCol = ()=> db.collection('pos_sales');
+const returnsCol = ()=> db.collection('pos_returns');
+
+const META_FIELD = { 'held-bills':'heldBills', 'auth-hash':'authHash' };
 async function sGet(key, fallback){
-  if(hasClaudeStorage){
-    try{ const r = await window.storage.get(key,false); return r? JSON.parse(r.value) : fallback; }
-    catch(e){ return fallback; }
-  }
-  try{ const raw = localStorage.getItem('khoory_pos_'+key); return raw!==null ? JSON.parse(raw) : fallback; }
-  catch(e){ return fallback; }
+  await authReady;
+  try{
+    const snap = await metaRef().get();
+    const data = snap.exists ? snap.data() : {};
+    const val = data[META_FIELD[key] || key];
+    return val!==undefined ? val : fallback;
+  }catch(e){ console.error('sGet failed for', key, e); return fallback; }
 }
 async function sSet(key, val){
-  if(hasClaudeStorage){
-    try{ await window.storage.set(key, JSON.stringify(val), false); return; }
-    catch(e){ console.error('storage set failed',e); return; }
-  }
-  try{ localStorage.setItem('khoory_pos_'+key, JSON.stringify(val)); }
-  catch(e){ console.error('localStorage set failed',e); }
+  await authReady;
+  try{ await metaRef().set({[META_FIELD[key] || key]: val}, {merge:true}); }
+  catch(e){ console.error('sSet failed for', key, e); }
+}
+
+/* Atomically read-modify-write the shared inventory array so two tills
+   editing stock/prices at the same instant can't silently drop each other's
+   change. Skips the write entirely if the mutator made no change. */
+async function mutateInventory(mutator){
+  await authReady;
+  return db.runTransaction(async tx=>{
+    const ref = metaRef();
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    const before = JSON.stringify(inv);
+    const extra = mutator(inv, data) || {};
+    if(JSON.stringify(inv)===before && Object.keys(extra).length===0) return {inventory: inv, skipped:true};
+    tx.set(ref, {inventory: inv, ...extra}, {merge:true});
+    return {inventory: inv};
+  });
+}
+
+/* Atomically allocate the next invoice number, decrement stock for the
+   items sold, and write the sale — all in one transaction. */
+async function submitSale(cartItems, saleFields){
+  await authReady;
+  const metaDocRef = metaRef();
+  const saleDocRef = salesCol().doc();
+  return db.runTransaction(async tx=>{
+    const snap = await tx.get(metaDocRef);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    cartItems.forEach(r=>{
+      const p = inv.find(x=>x.id===r.id);
+      if(p) p.stock = Math.max(0, p.stock - r.qty);
+    });
+    const nextCounter = (data.invoiceCounter||1000) + 1;
+    const invoiceNo = 'INV-' + String(nextCounter).padStart(6,'0');
+    const sale = {...saleFields, id: saleDocRef.id, invoiceNo};
+    tx.set(metaDocRef, {inventory: inv, invoiceCounter: nextCounter}, {merge:true});
+    tx.set(saleDocRef, sale);
+    return {sale, inventory: inv, invoiceCounter: nextCounter};
+  });
+}
+
+/* Realtime listeners: any device's write shows up on every other device
+   within moments, with no manual refresh. */
+function subscribeMeta(){
+  metaRef().onSnapshot(snap=>{
+    const data = snap.exists ? snap.data() : {};
+    inventory = data.inventory || [];
+    heldBills = data.heldBills || [];
+    shift = data.shift || {start: Date.now()};
+    zHistory = data.zHistory || [];
+    invoiceCounter = data.invoiceCounter || 1000;
+    if(data.authHash) currentAuthHash = data.authHash;
+    document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
+    renderProducts(); renderCart(); renderInventory(); renderHeld(); renderReport();
+  }, e=>console.error('meta listener error', e));
+}
+function subscribeSales(){
+  salesCol().orderBy('time').onSnapshot(snap=>{
+    sales = snap.docs.map(d=>d.data());
+    renderInvoices(); renderReport();
+  }, e=>console.error('sales listener error', e));
+}
+function subscribeReturns(){
+  returnsCol().orderBy('time').onSnapshot(snap=>{
+    returns = snap.docs.map(d=>d.data());
+    renderInvoices(); renderReport();
+  }, e=>console.error('returns listener error', e));
 }
 
 let inventory = [];
@@ -333,16 +436,22 @@ const money = n => 'AED ' + (Math.round(n*100)/100).toFixed(2);
 
 /* ---------- Init / seed ---------- */
 async function init(){
-  inventory = await sGet('inventory', null);
-  if(!inventory){
-    inventory = [
-      {id:cid(), name:'Espresso', barcode:genBarcode(), price:12, cost:4, stock:500, category:'Beverage'},
-      {id:cid(), name:'Croissant', barcode:genBarcode(), price:9, cost:3, stock:80, category:'Bakery'},
-      {id:cid(), name:'Bottled Water 500ml', barcode:genBarcode(), price:3, cost:1, stock:200, category:'Beverage'},
-      {id:cid(), name:'Club Sandwich', barcode:genBarcode(), price:28, cost:11, stock:40, category:'Food'},
-    ];
-    await sSet('inventory', inventory);
-  }
+  await seedInventoryIfNeeded();
+  subscribeMeta();
+  subscribeSales();
+  subscribeReturns();
+  bindNav();
+  bindScanner();
+  setVatDefaultRange();
+  setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleString(); },1000);
+}
+async function seedInventoryIfNeeded(){
+  const defaults = [
+    {id:cid(), name:'Espresso', barcode:genBarcode(), price:12, cost:4, stock:500, category:'Beverage'},
+    {id:cid(), name:'Croissant', barcode:genBarcode(), price:9, cost:3, stock:80, category:'Bakery'},
+    {id:cid(), name:'Bottled Water 500ml', barcode:genBarcode(), price:3, cost:1, stock:200, category:'Beverage'},
+    {id:cid(), name:'Club Sandwich', barcode:genBarcode(), price:28, cost:11, stock:40, category:'Food'},
+  ];
   const catalog = [
     // Dairy & Eggs
     {name:'Al Ain Fresh Milk 1L', price:6.50, cost:4.20, category:'Dairy & Eggs'},
@@ -379,38 +488,22 @@ async function init(){
     {name:'Dettol Hand Soap 250ml', price:8.00, cost:5.00, category:'Personal Care'},
     {name:'Sunsilk Shampoo 400ml', price:15.00, cost:9.50, category:'Personal Care'},
   ];
-  const beforeCount = inventory.length;
-  inventory = inventory.filter(p => (p.category||'').toLowerCase() !== 'fruits & vegetables');
-  let changed = inventory.length !== beforeCount;
-  catalog.forEach(c=>{
-    const existing = inventory.find(p=>p.name.toLowerCase()===c.name.toLowerCase());
-    if(!existing){
-      inventory.push({id:cid(), name:c.name, barcode:genBarcode(), price:c.price, cost:c.cost, stock:100, category:c.category});
-      changed = true;
-    }else if(!existing.price || existing.price===0){
-      existing.price = c.price; existing.cost = c.cost; existing.category = c.category;
-      if(!existing.stock) existing.stock = 100;
-      changed = true;
-    }
-  });
-  if(changed) await sSet('inventory', inventory);
-
-  heldBills = await sGet('held-bills', []);
-  sales = await sGet('sales', []);
-  shift = await sGet('shift', {start: Date.now()});
-  zHistory = await sGet('zHistory', []);
-  returns = await sGet('returns', []);
-  invoiceCounter = await sGet('invoiceCounter', 1000);
-
-  document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
-  renderProducts();
-  renderCart();
-  renderInventory();
-  renderHeld();
-  bindNav();
-  bindScanner();
-  setVatDefaultRange();
-  setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleString(); },1000);
+  try{
+    await mutateInventory(inv=>{
+      if(inv.length===0) inv.push(...defaults);
+      const kept = inv.filter(p => (p.category||'').toLowerCase() !== 'fruits & vegetables');
+      inv.length = 0; inv.push(...kept);
+      catalog.forEach(c=>{
+        const existing = inv.find(p=>p.name.toLowerCase()===c.name.toLowerCase());
+        if(!existing){
+          inv.push({id:cid(), name:c.name, barcode:genBarcode(), price:c.price, cost:c.cost, stock:100, category:c.category});
+        }else if(!existing.price || existing.price===0){
+          existing.price = c.price; existing.cost = c.cost; existing.category = c.category;
+          if(!existing.stock) existing.stock = 100;
+        }
+      });
+    });
+  }catch(e){ console.error('seedInventoryIfNeeded failed', e); }
 }
 function cid(){ return 'p_' + Math.random().toString(36).slice(2,9); }
 function genBarcode(){
@@ -685,28 +778,26 @@ function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
 async function completeSale(method){
   const t = calcTotals();
   const tendered = method==='cash' ? parseFloat(document.getElementById('tendered')?.value||0) : t.total;
-  invoiceCounter += 1;
-  await sSet('invoiceCounter', invoiceCounter);
-  const invoiceNo = 'INV-' + String(invoiceCounter).padStart(6,'0');
-  const sale = {
-    id: cid(), invoiceNo, time: Date.now(), items: JSON.parse(JSON.stringify(cart)),
+  const saleFields = {
+    time: Date.now(), items: JSON.parse(JSON.stringify(cart)),
     subtotal:t.subtotal, discount:t.discount, vat:t.vat, total:t.total,
     payment: method, tendered, change: method==='cash'? tendered-t.total : 0,
     status: 'completed'
   };
-  sales.push(sale);
-  await sSet('sales', sales);
-
-  // decrement stock
-  cart.forEach(r=>{
-    const p = inventory.find(x=>x.id===r.id);
-    if(p) p.stock = Math.max(0, p.stock-r.qty);
-  });
-  await sSet('inventory', inventory);
+  let result;
+  try{
+    result = await submitSale(cart, saleFields);
+  }catch(e){
+    console.error('completeSale failed', e);
+    showToast('Could not save sale — check your connection and try again');
+    return;
+  }
+  inventory = result.inventory;
+  invoiceCounter = result.invoiceCounter;
   renderProducts(); renderInventory();
 
   closeModal();
-  printReceipt(sale);
+  printReceipt(result.sale);
   cart=[]; document.getElementById('discVal').value=0; renderCart();
   showToast('Sale complete — '+money(t.total));
 }
@@ -789,20 +880,33 @@ async function saveProduct(id){
   const cost = parseFloat(document.getElementById('f_cost').value)||0;
   const stock = parseInt(document.getElementById('f_stock').value)||0;
   if(!name){ showToast('Name is required'); return; }
-  if(id){
-    const p = inventory.find(x=>x.id===id);
-    Object.assign(p,{name,barcode,category,price,cost,stock});
-  }else{
-    inventory.push({id:cid(),name,barcode,category,price,cost,stock});
+  try{
+    await mutateInventory(inv=>{
+      if(id){
+        const p = inv.find(x=>x.id===id);
+        if(p) Object.assign(p,{name,barcode,category,price,cost,stock});
+      }else{
+        inv.push({id:cid(),name,barcode,category,price,cost,stock});
+      }
+    });
+  }catch(e){
+    console.error('saveProduct failed', e);
+    showToast('Could not save item — try again');
+    return;
   }
-  await sSet('inventory', inventory);
-  closeModal(); renderInventory(); renderProducts();
+  closeModal();
   showToast('Item saved');
 }
 async function deleteProduct(id){
-  inventory = inventory.filter(x=>x.id!==id);
-  await sSet('inventory', inventory);
-  renderInventory(); renderProducts();
+  try{
+    await mutateInventory(inv=>{
+      const idx = inv.findIndex(x=>x.id===id);
+      if(idx>=0) inv.splice(idx,1);
+    });
+  }catch(e){
+    console.error('deleteProduct failed', e);
+    showToast('Could not delete item — try again');
+  }
 }
 function printBarcodeLabel(id){
   const p = inventory.find(x=>x.id===id);
@@ -903,12 +1007,23 @@ async function runZReport(){
   const totalSales = sSum.total - rSum.total;
   const cash = list.filter(x=>x.payment==='cash').reduce((s,x)=>s+x.total,0);
   const card = list.filter(x=>x.payment==='card').reduce((s,x)=>s+x.total,0);
-  zHistory.push({closedAt:Date.now(), count:list.length, total:totalSales, cash, card, shiftStart:shift.start});
-  await sSet('zHistory', zHistory);
-  shift = {start: Date.now()};
-  await sSet('shift', shift);
-  document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
-  renderReport();
+  const zEntry = {closedAt:Date.now(), count:list.length, total:totalSales, cash, card, shiftStart:shift.start};
+  const newShift = {start: Date.now()};
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const hist = (data.zHistory||[]).slice();
+      hist.push(zEntry);
+      tx.set(metaDocRef, {zHistory: hist, shift: newShift}, {merge:true});
+    });
+  }catch(e){
+    console.error('runZReport failed', e);
+    showToast('Could not close shift — try again');
+    return;
+  }
   showToast('Z report saved — shift closed');
 }
 
@@ -939,17 +1054,29 @@ async function cancelSale(id){
   const sale = sales.find(s=>s.id===id);
   if(!sale || sale.status==='cancelled') return;
   if(!confirm(`Cancel invoice ${sale.invoiceNo}? Stock for its items will be restored.`)) return;
+  const restocks = [];
   sale.items.forEach(r=>{
     const already = returnedQtyFor(sale.id, r.id);
     const restock = r.qty - already;
-    const p = inventory.find(x=>x.id===r.id);
-    if(p && restock>0) p.stock += restock;
+    if(restock>0) restocks.push({id:r.id, qty:restock});
   });
-  sale.status = 'cancelled';
-  sale.cancelledAt = Date.now();
-  await sSet('sales', sales);
-  await sSet('inventory', inventory);
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const saleDocRef = salesCol().doc(sale.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      restocks.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.update(saleDocRef, {status:'cancelled', cancelledAt: Date.now()});
+    });
+  }catch(e){
+    console.error('cancelSale failed', e);
+    showToast('Could not cancel invoice — try again');
+    return;
+  }
   showToast('Invoice cancelled and stock restored');
 }
 
@@ -1010,21 +1137,32 @@ async function saveEditedSale(id){
   if(!sale) return;
   const newItems = readEditModalItems(sale);
   if(newItems.length===0){ showToast('An invoice needs at least one item — cancel it instead'); return; }
-  // restock old quantities, then deduct new quantities
-  sale.items.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
-  newItems.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock = Math.max(0,p.stock-r.qty); });
   const subtotal = newItems.reduce((s,r)=>s+r.price*r.qty,0);
   let discount = parseFloat(document.getElementById('editDisc').value)||0;
   discount = Math.min(discount, subtotal);
   const taxable = subtotal-discount;
   const vat = taxable*VAT_RATE;
   const total = taxable+vat;
-  sale.items = newItems; sale.subtotal=subtotal; sale.discount=discount; sale.vat=vat; sale.total=total;
-  sale.editedAt = Date.now();
-  await sSet('sales', sales);
-  await sSet('inventory', inventory);
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const saleDocRef = salesCol().doc(sale.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      // restock old quantities, then deduct new quantities
+      sale.items.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      newItems.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock = Math.max(0,p.stock-r.qty); });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.update(saleDocRef, {items:newItems, subtotal, discount, vat, total, editedAt: Date.now()});
+    });
+  }catch(e){
+    console.error('saveEditedSale failed', e);
+    showToast('Could not save changes — try again');
+    return;
+  }
   closeModal();
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
   showToast('Invoice updated');
 }
 
@@ -1068,17 +1206,30 @@ async function confirmReturn(id){
   const taxable = subtotal-discount;
   const vat = taxable*VAT_RATE;
   const total = taxable+vat;
-  const retCount = returns.filter(r=>r.saleId===sale.id).length+1;
-  const ret = { id:cid(), saleId:sale.id, invoiceNo: sale.invoiceNo+'-R'+retCount, originalInvoiceNo: sale.invoiceNo,
-    time:Date.now(), items:retItems, subtotal, discount, vat, total, payment: sale.payment };
-  returns.push(ret);
-  await sSet('returns', returns);
-  retItems.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
-  await sSet('inventory', inventory);
+  let ret;
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const retDocRef = returnsCol().doc();
+    ret = await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      retItems.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      const r = { id: retDocRef.id, saleId: sale.id, invoiceNo: sale.invoiceNo+'-R'+retDocRef.id.slice(-5).toUpperCase(), originalInvoiceNo: sale.invoiceNo,
+        time: Date.now(), items: retItems, subtotal, discount, vat, total, payment: sale.payment };
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.set(retDocRef, r);
+      return r;
+    });
+  }catch(e){
+    console.error('confirmReturn failed', e);
+    showToast('Could not process return — try again');
+    return;
+  }
   closeModal();
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
   printReturnReceipt(ret);
-  showToast('Return processed — '+money(total)+' credited');
+  showToast('Return processed — '+money(ret.total)+' credited');
 }
 function printReturnReceipt(ret){
   const area = document.getElementById('printArea');
