@@ -588,13 +588,12 @@ function handleScanSubmit(){
   const input = document.getElementById('scanInput');
   const q = input.value.trim();
   if(!q) return;
+  input.value='';
   let item = inventory.find(p=>p.barcode===q);
   if(!item) item = inventory.find(p=>p.name.toLowerCase()===q.toLowerCase());
   if(!item) item = inventory.find(p=>p.name.toLowerCase().includes(q.toLowerCase()));
-  if(item){ addToCart(item); showToast(item.name+' added'); }
-  else showToast('No item found for "'+q+'"');
-  input.value='';
-  input.focus();
+  if(item) openAddItemModal(item.id);
+  else { showToast('No item found for "'+q+'"'); input.focus(); }
 }
 
 /* ---------- Products grid ---------- */
@@ -659,13 +658,6 @@ function renderProducts(){
 }
 
 /* ---------- Cart ---------- */
-function addToCart(product){
-  if(product.stock<=0){ showToast(product.name+' is out of stock'); return; }
-  const row = cart.find(r=>r.id===product.id);
-  if(row){ if(row.qty < product.stock) row.qty++; else showToast('No more stock available'); }
-  else cart.push({id:product.id, name:product.name, barcode:product.barcode, price:product.price, qty:1});
-  renderCart();
-}
 function openAddItemModal(productId){
   const p = inventory.find(x=>x.id===productId);
   if(!p) return;
@@ -686,6 +678,9 @@ function openAddItemModal(productId){
       <button class="btn primary" style="flex:1;" onclick="confirmAddItem('${p.id}')">Add to bill</button>
     </div>
   </div></div>`;
+  const onEnter = e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmAddItem(p.id); } };
+  document.getElementById('addQty').addEventListener('keydown', onEnter);
+  document.getElementById('addPrice').addEventListener('keydown', onEnter);
   document.getElementById('addQty').focus();
 }
 function confirmAddItem(productId){
