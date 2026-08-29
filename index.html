@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -77,6 +78,8 @@
   .prod-card .pr{font-family:var(--mono);font-weight:700;color:var(--till-dark);font-size:14px;}
   .prod-card .st{font-size:11px;color:var(--text-dim);margin-top:2px;}
   .prod-card .st.low{color:var(--red);font-weight:600;}
+  .prod-card.drag-ghost{opacity:.35;border:1.5px dashed var(--till);}
+  .prod-card.drag-active{box-shadow:0 8px 20px rgba(0,0,0,.18);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
 
   .ticket{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0;overflow:hidden;position:sticky;top:16px;}
   .ticket-head{padding:16px 18px;border-bottom:1px dashed var(--line);display:flex;justify-content:space-between;align-items:center;}
@@ -198,7 +201,7 @@
     <!-- SALE VIEW -->
     <section id="view-sale">
       <div class="topbar">
-        <div><h1>New Sale</h1><div class="sub">Scan a barcode or search below</div></div>
+        <div><h1>New Sale</h1><div class="sub">Scan a barcode, search below, or press-and-drag a tile to rearrange it</div></div>
         <div class="pill" id="clock"></div>
       </div>
       <div class="sale-layout">
@@ -602,12 +605,44 @@ function sortSaleBy(field){
   else { saleSortField = field; saleSortDir = 1; }
   renderProducts();
 }
+let prodSortable = null;
+function initProdSortable(){
+  if(prodSortable || typeof Sortable==='undefined') return;
+  prodSortable = new Sortable(document.getElementById('prodGrid'), {
+    animation: 150,
+    delay: 150,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 6,
+    ghostClass: 'drag-ghost',
+    dragClass: 'drag-active',
+    onEnd: evt=>{
+      if(evt.oldIndex===evt.newIndex) return;
+      const orderedIds = Array.from(document.getElementById('prodGrid').children).map(el=>el.dataset.id);
+      saleSortField = null; saleSortDir = 1;
+      persistCustomOrder(orderedIds);
+    }
+  });
+}
+async function persistCustomOrder(orderedIds){
+  try{
+    await mutateInventory(inv=>{
+      const byId = new Map(inv.map(p=>[p.id,p]));
+      const newInv = orderedIds.map(id=>byId.get(id)).filter(Boolean);
+      inv.forEach(p=>{ if(!orderedIds.includes(p.id)) newInv.push(p); });
+      inv.length = 0; inv.push(...newInv);
+    });
+  }catch(e){
+    console.error('persistCustomOrder failed', e);
+    showToast('Could not save item order — try again');
+  }
+}
 function renderProducts(){
   const grid = document.getElementById('prodGrid');
   grid.innerHTML='';
   sortItemsByField(inventory, saleSortField, saleSortDir).forEach(p=>{
     const div = document.createElement('button');
     div.className='prod-card';
+    div.dataset.id = p.id;
     div.onclick = ()=>{ openAddItemModal(p.id); };
     div.innerHTML = `<div class="nm">${esc(p.name)}</div>
       <div class="pr">${money(p.price)}</div>
@@ -620,6 +655,7 @@ function renderProducts(){
     const ind = document.getElementById('saleSortInd_'+f);
     if(ind) ind.textContent = saleSortField===f ? (saleSortDir===1?'▲':'▼') : '';
   });
+  initProdSortable();
 }
 
 /* ---------- Cart ---------- */
