@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -103,6 +106,10 @@
   /* Tables */
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th{text-align:left;color:var(--text-dim);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:2px solid var(--line);}
+  th.sortable{cursor:pointer;user-select:none;}
+  th.sortable:hover{color:var(--till-dark);}
+  .sort-ind{display:inline-block;width:10px;font-family:var(--mono);color:var(--till-dark);}
+  .share-bar{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
   td{padding:10px;border-bottom:1px solid #F1F3EF;font-family:var(--mono);}
   td.txt{font-family:var(--sans);}
   tr:hover td{background:#FAFBF9;}
@@ -224,14 +231,29 @@
     <!-- INVENTORY VIEW -->
     <section id="view-inventory" style="display:none;">
       <div class="topbar">
-        <div><h1>Inventory</h1><div class="sub">Manage items, prices, stock and barcodes</div></div>
+        <div><h1>Inventory</h1><div class="sub">Manage items, prices, stock and barcodes · click a column heading to sort</div></div>
         <button class="btn primary" onclick="openProductModal()">+ Add item</button>
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Item</th><th>Barcode</th><th>Category</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" onclick="sortInventoryBy('name')">Item<span class="sort-ind" id="sortInd_name"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('barcode')">Barcode<span class="sort-ind" id="sortInd_barcode"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('category')">Category<span class="sort-ind" id="sortInd_category"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('price')">Price<span class="sort-ind" id="sortInd_price"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('stock')">Stock<span class="sort-ind" id="sortInd_stock"></span></th>
+            <th>Actions</th>
+          </tr></thead>
           <tbody id="invTable"></tbody>
         </table>
+      </div>
+      <div class="card share-bar">
+        <b style="font-size:13px;">Share inventory</b>
+        <button class="btn" onclick="exportInventoryPDF()">📄 Export PDF</button>
+        <button class="btn" onclick="exportInventoryExcel()">📊 Export Excel</button>
+        <button class="btn" onclick="shareInventoryEmail()">✉️ Email</button>
+        <button class="btn" onclick="shareInventoryWhatsApp()">💬 WhatsApp</button>
+        <button class="btn" onclick="printInventory()">🖨️ Print</button>
       </div>
     </section>
 
@@ -538,7 +560,9 @@ function bindScanner(){
     if(e.key==='Enter'){ e.preventDefault(); handleScanSubmit(); }
   });
   document.addEventListener('click', e=>{
-    if(document.getElementById('view-sale').style.display!=='none' && !e.target.closest('.modal')){
+    if(document.getElementById('view-sale').style.display!=='none' &&
+       !e.target.closest('.modal') &&
+       !e.target.closest('input, select, textarea')){
       input.focus();
     }
   });
@@ -689,7 +713,9 @@ function renderCart(){
   document.getElementById('btnCard').disabled = disabled;
   document.getElementById('btnHold').disabled = disabled;
 }
-document.addEventListener('input', e=>{ if(e.target.id==='discVal'||e.target.id==='discType') renderCart(); });
+function onDiscountFieldChange(e){ if(e.target.id==='discVal'||e.target.id==='discType') renderCart(); }
+document.addEventListener('input', onDiscountFieldChange);
+document.addEventListener('change', onDiscountFieldChange);
 
 /* ---------- Hold bills ---------- */
 async function holdBill(){
@@ -831,10 +857,29 @@ function printReceipt(sale, isDuplicate){
 }
 
 /* ---------- Inventory ---------- */
+/* ---------- Inventory sorting ---------- */
+let invSortField = null;
+let invSortDir = 1; // 1 = ascending, -1 = descending
+function sortInventoryBy(field){
+  if(invSortField===field) invSortDir *= -1;
+  else { invSortField = field; invSortDir = 1; }
+  renderInventory();
+}
+function sortedInventory(){
+  if(!invSortField) return inventory;
+  const field = invSortField, dir = invSortDir;
+  return inventory.slice().sort((a,b)=>{
+    if(field==='name' || field==='barcode' || field==='category'){
+      const av = String(a[field]||'').toLowerCase(), bv = String(b[field]||'').toLowerCase();
+      return av<bv ? -dir : av>bv ? dir : 0;
+    }
+    return ((Number(a[field])||0) - (Number(b[field])||0)) * dir;
+  });
+}
 function renderInventory(){
   const tb = document.getElementById('invTable');
   tb.innerHTML='';
-  inventory.forEach(p=>{
+  sortedInventory().forEach(p=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="txt"><b>${esc(p.name)}</b></td>
       <td>${p.barcode}</td>
@@ -848,7 +893,72 @@ function renderInventory(){
       </td>`;
     tb.appendChild(tr);
   });
+  ['name','barcode','category','price','stock'].forEach(f=>{
+    const el = document.getElementById('sortInd_'+f);
+    if(el) el.textContent = invSortField===f ? (invSortDir===1?'▲':'▼') : '';
+  });
 }
+
+/* ---------- Inventory sharing / export ---------- */
+function exportInventoryPDF(){
+  if(!window.jspdf){ showToast('PDF library failed to load — check your connection'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text('Khoory Traders — Inventory', 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Generated ' + new Date().toLocaleString() + ' · ' + inventory.length + ' items', 14, 21);
+  doc.autoTable({
+    startY: 26,
+    head: [['Item','Barcode','Category','Price','Stock']],
+    body: sortedInventory().map(p=>[p.name, p.barcode, p.category||'—', money(p.price), String(p.stock)]),
+    styles:{fontSize:8},
+    headStyles:{fillColor:[46,125,91]}
+  });
+  doc.save('khoory-inventory-'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+function exportInventoryExcel(){
+  if(!window.XLSX){ showToast('Excel library failed to load — check your connection'); return; }
+  const rows = sortedInventory().map(p=>({
+    Item:p.name, Barcode:p.barcode, Category:p.category||'', 'Price (AED)':p.price, 'Cost (AED)':p.cost||0, Stock:p.stock
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+  XLSX.writeFile(wb, 'khoory-inventory-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function inventorySummaryText(limit){
+  const list = sortedInventory();
+  const lines = list.slice(0, limit).map(p=>`${p.name} — ${money(p.price)} (Stock: ${p.stock})`);
+  let text = `Khoory Traders — Inventory (${new Date().toLocaleDateString()})\n${list.length} items\n\n` + lines.join('\n');
+  if(list.length > limit) text += `\n… and ${list.length-limit} more (see attached export)`;
+  return text;
+}
+function shareInventoryEmail(){
+  const subject = 'Khoory Traders — Inventory Export';
+  const body = inventorySummaryText(150) + '\n\nTip: use "Export PDF" or "Export Excel" first and attach the downloaded file for the full list.';
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function shareInventoryWhatsApp(){
+  const text = inventorySummaryText(60);
+  window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
+}
+function printInventory(){
+  const area = document.getElementById('printArea');
+  const rows = sortedInventory().map(p=>`<tr><td class="txt">${esc(p.name)}</td><td>${p.barcode}</td><td class="txt">${esc(p.category||'—')}</td><td class="num">${money(p.price)}</td><td class="num">${p.stock}</td></tr>`).join('');
+  area.className = 'a4';
+  area.innerHTML = `<div class="vat-report">
+    <h2>Khoory Traders — Inventory</h2>
+    <div class="meta">Generated ${new Date().toLocaleString()} · ${inventory.length} items</div>
+    <table>
+      <thead><tr><th>Item</th><th>Barcode</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  setTimeout(()=>{ window.print(); area.className=''; }, 80);
+}
+
 function openProductModal(id){
   const p = id ? inventory.find(x=>x.id===id) : {id:null,name:'',barcode:'',price:'',cost:'',stock:'',category:''};
   const root = document.getElementById('modalRoot');
