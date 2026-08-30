@@ -1893,6 +1893,7 @@ function renderLoginScreen(){
   </div>`;
   const pw = document.getElementById('loginPw');
   pw.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(); });
+  pw.addEventListener('input', ()=>{ if(pw.value && simpleHash(pw.value)===currentAuthHash) unlockApp(); });
   pw.focus();
 }
 async function attemptLogin(){
