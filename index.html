@@ -489,7 +489,7 @@ async function submitSale(cartItems, saleFields){
     const inv = (data.inventory||[]).map(p=>({...p}));
     cartItems.forEach(r=>{
       const p = inv.find(x=>x.id===r.id);
-      if(p) p.stock = Math.max(0, p.stock - r.qty);
+      if(p) p.stock = p.stock - r.qty; // allowed to go negative — selling out of stock still completes the sale
     });
     const nextCounter = (data.invoiceCounter||1000) + 1;
     const invoiceNo = 'INV-' + String(nextCounter).padStart(6,'0');
@@ -757,7 +757,7 @@ function renderProducts(){
     div.onclick = ()=>{ openAddItemModal(p.id); };
     div.innerHTML = `<div class="nm">${esc(p.name)}</div>
       <div class="pr">${money(p.price)}</div>
-      <div class="st ${p.stock<=5?'low':''}">${p.stock<=0?'Out of stock':p.stock+' in stock'}</div>`;
+      <div class="st ${p.stock<=5?'low':''}">${p.stock<0?Math.abs(p.stock)+' short':p.stock===0?'Out of stock':p.stock+' in stock'}</div>`;
     grid.appendChild(div);
   });
   document.querySelectorAll('.sort-chip').forEach(btn=>{
@@ -773,12 +773,11 @@ function renderProducts(){
 function openAddItemModal(productId){
   const p = inventory.find(x=>x.id===productId);
   if(!p) return;
-  if(p.stock<=0){ showToast(p.name+' is out of stock'); return; }
   const existing = cart.find(r=>r.id===p.id);
   const root = document.getElementById('modalRoot');
   root.innerHTML = `<div class="modal-bg"><div class="modal">
     <h3>${esc(p.name)}</h3>
-    <div class="sub" style="margin-bottom:14px;">${p.stock} in stock</div>
+    <div class="sub" style="margin-bottom:14px;${p.stock<=0?'color:var(--red);font-weight:700;':''}">${p.stock<0?Math.abs(p.stock)+' short':p.stock===0?'Out of stock — will sell on backorder':p.stock+' in stock'}</div>
     <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">QUANTITY</label>
     <input id="addQty" type="text" inputmode="numeric" value="${existing?existing.qty:1}"
       style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:15px;margin-bottom:12px;">
@@ -804,7 +803,6 @@ function confirmAddItem(productId){
   let qty = parseInt(document.getElementById('addQty').value)||0;
   let price = parseFloat(document.getElementById('addPrice').value);
   if(qty<1){ showToast('Enter a quantity of at least 1'); return; }
-  if(qty>p.stock){ showToast('Only '+p.stock+' in stock'); qty = p.stock; }
   if(isNaN(price) || price<0) price = p.price;
   const row = cart.find(r=>r.id===p.id);
   if(row){ row.qty = qty; row.price = Math.round(price*100)/100; }
@@ -815,11 +813,9 @@ function confirmAddItem(productId){
 }
 function changeQty(id, delta){
   const row = cart.find(r=>r.id===id);
-  const prod = inventory.find(p=>p.id===id);
   if(!row) return;
   row.qty += delta;
   if(row.qty<=0){ cart = cart.filter(r=>r.id!==id); }
-  else if(prod && row.qty>prod.stock){ row.qty=prod.stock; showToast('No more stock available'); }
   renderCart();
 }
 function removeFromCart(id){ cart = cart.filter(r=>r.id!==id); renderCart(); }
