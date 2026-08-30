@@ -284,6 +284,14 @@
       <div class="topbar">
         <div><h1>Invoices</h1><div class="sub">Every sale ever recorded — look one up and reprint a duplicate</div></div>
       </div>
+      <div class="card share-bar">
+        <b style="font-size:13px;">Share invoices</b>
+        <button class="btn" onclick="exportInvoicesPDF()">📄 Export PDF</button>
+        <button class="btn" onclick="exportInvoicesExcel()">📊 Export Excel</button>
+        <button class="btn" onclick="shareInvoicesEmail()">✉️ Email</button>
+        <button class="btn" onclick="shareInvoicesWhatsApp()">💬 WhatsApp</button>
+        <button class="btn" onclick="printInvoicesList()">🖨️ Print</button>
+      </div>
       <div class="card" style="margin-bottom:16px;">
         <div style="display:flex;gap:10px;">
           <input id="invSearch" placeholder="Search by invoice no. (e.g. INV-001001)…" style="flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);" oninput="renderInvoices()">
@@ -1208,10 +1216,21 @@ async function runZReport(){
 }
 
 /* ---------- Invoices (all-time, searchable, reprint / edit / cancel / return) ---------- */
-function renderInvoices(){
+function filteredInvoices(){
   const q = (document.getElementById('invSearch')?.value||'').trim().toLowerCase();
   let list = sales.slice().reverse();
   if(q) list = list.filter(s=>(s.invoiceNo||'').toLowerCase().includes(q));
+  return list;
+}
+function statusText(sale){
+  if(sale.status==='cancelled') return 'Cancelled';
+  const rs = saleReturnStatus(sale);
+  if(rs==='full') return 'Returned';
+  if(rs==='partial') return 'Partial return';
+  return 'Completed';
+}
+function renderInvoices(){
+  const list = filteredInvoices();
   const tb = document.getElementById('invoicesTable');
   tb.innerHTML = list.map(s=>`<tr>
     <td>${s.invoiceNo||'—'}</td>
@@ -1223,6 +1242,72 @@ function renderInvoices(){
     <td class="txt">${actionButtons(s)}</td>
   </tr>`).join('') || `<tr><td colspan="7" class="txt" style="text-align:center;color:var(--text-dim);">No matching invoices.</td></tr>`;
 }
+
+/* ---------- Invoices sharing / export ---------- */
+function exportInvoicesPDF(){
+  if(!window.jspdf){ showToast('PDF library failed to load — check your connection'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const list = filteredInvoices();
+  doc.setFontSize(14);
+  doc.text('Khoory Traders — Invoices', 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Generated ' + new Date().toLocaleString() + ' · ' + list.length + ' invoices', 14, 21);
+  doc.autoTable({
+    startY: 26,
+    head: [['Invoice No.','Date','Items','Total','Payment','Status']],
+    body: list.map(s=>[s.invoiceNo||'—', new Date(s.time).toLocaleString(), String(s.items.reduce((a,i)=>a+i.qty,0)), money(s.total), s.payment.toUpperCase(), statusText(s)]),
+    styles:{fontSize:8},
+    headStyles:{fillColor:[46,125,91]}
+  });
+  doc.save('khoory-invoices-'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+function exportInvoicesExcel(){
+  if(!window.XLSX){ showToast('Excel library failed to load — check your connection'); return; }
+  const list = filteredInvoices();
+  const rows = list.map(s=>({
+    'Invoice No.': s.invoiceNo||'', Date: new Date(s.time).toLocaleString(), Items: s.items.reduce((a,i)=>a+i.qty,0),
+    'Subtotal (AED)': s.subtotal, 'Discount (AED)': s.discount, 'VAT (AED)': s.vat, 'Total (AED)': s.total,
+    Payment: s.payment.toUpperCase(), Status: statusText(s)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
+  XLSX.writeFile(wb, 'khoory-invoices-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function invoicesSummaryText(limit){
+  const list = filteredInvoices();
+  const lines = list.slice(0, limit).map(s=>`${s.invoiceNo||'—'} — ${new Date(s.time).toLocaleDateString()} — ${money(s.total)} (${statusText(s)})`);
+  let text = `Khoory Traders — Invoices (${new Date().toLocaleDateString()})\n${list.length} invoices\n\n` + lines.join('\n');
+  if(list.length > limit) text += `\n… and ${list.length-limit} more (see attached export)`;
+  return text;
+}
+function shareInvoicesEmail(){
+  const subject = 'Khoory Traders — Invoices Export';
+  const body = invoicesSummaryText(150) + '\n\nTip: use "Export PDF" or "Export Excel" first and attach the downloaded file for the full list.';
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function shareInvoicesWhatsApp(){
+  const text = invoicesSummaryText(60);
+  window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
+}
+function printInvoicesList(){
+  const area = document.getElementById('printArea');
+  const list = filteredInvoices();
+  const rows = list.map(s=>`<tr><td class="txt">${s.invoiceNo||'—'}</td><td class="txt">${new Date(s.time).toLocaleString()}</td><td class="num">${s.items.reduce((a,i)=>a+i.qty,0)}</td><td class="num">${money(s.total)}</td><td class="txt">${s.payment.toUpperCase()}</td><td class="txt">${statusText(s)}</td></tr>`).join('');
+  area.className = 'a4';
+  area.innerHTML = `<div class="vat-report">
+    <h2>Khoory Traders — Invoices</h2>
+    <div class="meta">Generated ${new Date().toLocaleString()} · ${list.length} invoices</div>
+    <table>
+      <thead><tr><th>Invoice No.</th><th>Date</th><th class="num">Items</th><th class="num">Total</th><th>Payment</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  setTimeout(()=>{ window.print(); area.className=''; }, 80);
+}
+
 function reprintInvoice(id){
   const sale = sales.find(s=>s.id===id);
   if(!sale) return;
