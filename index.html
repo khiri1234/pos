@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -991,10 +992,15 @@ async function completeSale(method){
 }
 
 /* ---------- Receipt printing ---------- */
-function receiptInnerHtml(sale, isDuplicate, svgId){
-  const rows = sale.items.map(r=>`<tr><td>${esc(r.name)} x${r.qty}</td><td style="text-align:right;">${money(r.price*r.qty)}</td></tr>`).join('');
+function receiptInnerHtml(sale, isDuplicate, qrId){
+  const rows = sale.items.map(r=>`
+    <tr><td colspan="2"><b>${esc(r.name)}</b></td></tr>
+    <tr><td colspan="2" style="padding-left:8px;color:#333;">${money(r.price)} x ${r.qty} = ${money(r.price*r.qty)}</td></tr>`).join('');
   return `
-    <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br><span style="font-size:10px;">TRN 100362439000003</span><br>${new Date(sale.time).toLocaleString()}</div>
+    <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b></div>
+    <div class="c" style="margin-top:4px;"><b>Tax Invoice</b><br><b dir="rtl">فاتورة ضريبية</b></div>
+    <div class="c" style="font-size:10px;margin-top:4px;">Address: Abu Dhabi, Nasr Street, Bldg. No.45<br>Tel: +97126340501<br>Email: khoorytraders123@gmail.com</div>
+    <div class="c" style="font-size:10px;margin-top:4px;">TRN 100362439000003<br>${new Date(sale.time).toLocaleString()}</div>
     ${isDuplicate ? '<div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** DUPLICATE COPY ***</div>' : ''}
     <div class="c" style="margin-top:4px;">Invoice No: <b>${sale.invoiceNo||'—'}</b></div>
     <hr>
@@ -1009,16 +1015,23 @@ function receiptInnerHtml(sale, isDuplicate, svgId){
       ${sale.payment==='cash'? `<tr><td>Tendered</td><td style="text-align:right;">${money(sale.tendered)}</td></tr><tr><td>Change</td><td style="text-align:right;">${money(sale.change)}</td></tr>`:''}
     </table>
     <hr><div class="c">Thank you</div>
-    <div class="c" style="margin-top:8px;"><svg id="${svgId}"></svg></div>`;
+    <div class="c" style="margin-top:10px;"><canvas id="${qrId}"></canvas>
+      <div style="margin-top:4px;font-weight:700;letter-spacing:.05em;">${sale.invoiceNo||'—'}</div>
+    </div>`;
+}
+function renderReceiptQr(canvasId, text){
+  if(!text) return;
+  try{
+    const el = document.getElementById(canvasId);
+    if(el && window.QRious) new QRious({element: el, value: text, size: 96, level: 'M'});
+  }catch(e){}
 }
 function printReceipt(sale, isDuplicate){
   const area = document.getElementById('printArea');
-  area.innerHTML = `<div class="receipt">${receiptInnerHtml(sale, isDuplicate, 'invSvg')}</div>`;
-  if(sale.invoiceNo){
-    try{ JsBarcode("#invSvg", sale.invoiceNo, {format:"CODE128", width:1.6, height:38, fontSize:10, margin:2}); }catch(e){}
-  }
-  playPrintAnimation(receiptInnerHtml(sale, isDuplicate, 'invSvgAnim'), ()=>{
-    if(sale.invoiceNo){ try{ JsBarcode("#invSvgAnim", sale.invoiceNo, {format:"CODE128", width:1.6, height:38, fontSize:10, margin:2}); }catch(e){} }
+  area.innerHTML = `<div class="receipt">${receiptInnerHtml(sale, isDuplicate, 'invQr')}</div>`;
+  renderReceiptQr('invQr', sale.invoiceNo);
+  playPrintAnimation(receiptInnerHtml(sale, isDuplicate, 'invQrAnim'), ()=>{
+    renderReceiptQr('invQrAnim', sale.invoiceNo);
   }).then(()=>{
     window.print();
     setTimeout(hidePrintAnimation, 2200);
