@@ -186,6 +186,7 @@
     <div class="brand"><div class="dot"></div><div><span>Khoory Traders</span><small>متجر خوري · Point of Sale</small></div></div>
     <button class="nav-btn active" data-view="sale"><span class="ic">🧾</span>Sale</button>
     <button class="nav-btn" data-view="inventory"><span class="ic">📦</span>Inventory</button>
+    <button class="nav-btn" data-view="purchases"><span class="ic">🚚</span>Purchases</button>
     <button class="nav-btn" data-view="held"><span class="ic">⏸</span>Held Bills <span id="heldCount" style="margin-left:auto;font-family:var(--mono);"></span></button>
     <button class="nav-btn" data-view="invoices"><span class="ic">🔎</span>Invoices</button>
     <button class="nav-btn" data-view="reports"><span class="ic">📊</span>Reports</button>
@@ -269,6 +270,25 @@
             <th>Actions</th>
           </tr></thead>
           <tbody id="invTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PURCHASES VIEW -->
+    <section id="view-purchases" style="display:none;">
+      <div class="topbar">
+        <div><h1>Purchases</h1><div class="sub">Record stock bought from suppliers — updates stock and cost automatically</div></div>
+        <button class="btn primary" onclick="openPurchaseModal()">+ Record purchase</button>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;">
+          <input id="purchaseSearch" placeholder="Search by supplier or purchase no. (e.g. PUR-001001)…" style="flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);" oninput="renderPurchases()">
+        </div>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Purchase No.</th><th>Date</th><th>Supplier</th><th>Items</th><th>Total</th><th>Actions</th></tr></thead>
+          <tbody id="purchasesTable"></tbody>
         </table>
       </div>
     </section>
@@ -381,6 +401,7 @@ const authReady = new Promise((resolve, reject)=>{
 const metaRef = ()=> db.collection('pos').doc('meta');
 const salesCol = ()=> db.collection('pos_sales');
 const returnsCol = ()=> db.collection('pos_returns');
+const purchasesCol = ()=> db.collection('pos_purchases');
 
 const META_FIELD = { 'held-bills':'heldBills', 'auth-hash':'authHash' };
 async function sGet(key, fallback){
@@ -439,6 +460,35 @@ async function submitSale(cartItems, saleFields){
   });
 }
 
+/* Atomically allocate the next purchase number, add the purchased stock
+   (matching items by name, creating a new inventory item when nothing
+   matches), and write the purchase record — all in one transaction. */
+async function submitPurchase(purchaseFields){
+  await authReady;
+  const metaDocRef = metaRef();
+  const purchaseDocRef = purchasesCol().doc();
+  return db.runTransaction(async tx=>{
+    const snap = await tx.get(metaDocRef);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    purchaseFields.items.forEach(line=>{
+      const p = inv.find(x=>x.name.toLowerCase()===line.name.toLowerCase());
+      if(p){
+        p.stock = (p.stock||0) + line.qty;
+        if(line.cost>0) p.cost = line.cost;
+      }else{
+        inv.push({id:cid(), name:line.name, barcode:genBarcode(), price:line.cost, cost:line.cost, stock:line.qty, category:''});
+      }
+    });
+    const nextCounter = (data.purchaseCounter||1000) + 1;
+    const purchaseNo = 'PUR-' + String(nextCounter).padStart(6,'0');
+    const purchase = {...purchaseFields, id: purchaseDocRef.id, purchaseNo};
+    tx.set(metaDocRef, {inventory: inv, purchaseCounter: nextCounter}, {merge:true});
+    tx.set(purchaseDocRef, purchase);
+    return {purchase, inventory: inv, purchaseCounter: nextCounter};
+  });
+}
+
 /* Realtime listeners: any device's write shows up on every other device
    within moments, with no manual refresh. */
 function subscribeMeta(){
@@ -449,6 +499,7 @@ function subscribeMeta(){
     shift = data.shift || {start: Date.now()};
     zHistory = data.zHistory || [];
     invoiceCounter = data.invoiceCounter || 1000;
+    purchaseCounter = data.purchaseCounter || 1000;
     if(data.authHash) currentAuthHash = data.authHash;
     document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
     renderProducts(); renderCart(); renderInventory(); renderHeld(); renderReport();
@@ -466,6 +517,12 @@ function subscribeReturns(){
     renderInvoices(); renderReport();
   }, e=>console.error('returns listener error', e));
 }
+function subscribePurchases(){
+  purchasesCol().orderBy('time').onSnapshot(snap=>{
+    purchases = snap.docs.map(d=>d.data());
+    renderPurchases();
+  }, e=>console.error('purchases listener error', e));
+}
 
 let inventory = [];
 let cart = []; // {id, name, barcode, price, qty}
@@ -476,6 +533,8 @@ let currentAuthHash = null;
 let returns = [];
 let zHistory = [];
 let invoiceCounter = 1000;
+let purchases = [];
+let purchaseCounter = 1000;
 
 const VAT_RATE = 0.05;
 const money = n => 'AED ' + (Math.round(n*100)/100).toFixed(2);
@@ -486,6 +545,7 @@ async function init(){
   subscribeMeta();
   subscribeSales();
   subscribeReturns();
+  subscribePurchases();
   bindNav();
   bindScanner();
   setVatDefaultRange();
@@ -564,12 +624,13 @@ function bindNav(){
     b.addEventListener('click', ()=>{
       document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active'));
       b.classList.add('active');
-      ['sale','inventory','held','invoices','reports'].forEach(v=>{
+      ['sale','inventory','purchases','held','invoices','reports'].forEach(v=>{
         document.getElementById('view-'+v).style.display = (v===b.dataset.view)?'block':'none';
       });
       if(b.dataset.view==='reports') renderReport();
       if(b.dataset.view==='held') renderHeld();
       if(b.dataset.view==='invoices') renderInvoices();
+      if(b.dataset.view==='purchases') renderPurchases();
       if(b.dataset.view==='sale') document.getElementById('scanInput').focus();
     });
   });
@@ -1111,6 +1172,166 @@ function printBarcodeLabel(id){
   setTimeout(()=>window.print(),100);
 }
 
+/* ---------- Purchases (stock bought from suppliers) ---------- */
+let purchaseLineCount = 0;
+function openPurchaseModal(){
+  purchaseLineCount = 0;
+  const root = document.getElementById('modalRoot');
+  const nameOptions = inventory.map(p=>`<option value="${esc(p.name)}">`).join('');
+  root.innerHTML = `<div class="modal-bg"><div class="modal" style="width:520px;max-height:85vh;overflow:auto;">
+    <h3>Record Purchase</h3>
+    <datalist id="invNameList">${nameOptions}</datalist>
+    <div class="form-grid">
+      <div><label>Supplier</label><input id="pSupplier" placeholder="Supplier name"></div>
+      <div><label>Reference (optional)</label><input id="pReference" placeholder="Supplier invoice #"></div>
+    </div>
+    <label style="font-size:11px;color:var(--text-dim);font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px;">Items</label>
+    <div id="purchaseLinesWrap"></div>
+    <button class="btn" style="margin:8px 0 12px 0;" onclick="addPurchaseLine()">+ Add line</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:10px;">
+      <input type="checkbox" id="pVat" checked onchange="recalcPurchaseModal()"> Include VAT (5%)
+    </label>
+    <div id="purchaseTotalsPreview" class="totals" style="border:1px solid var(--line);border-radius:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn" style="flex:1;" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" style="flex:1;" onclick="confirmPurchase()">Save purchase</button>
+    </div>
+  </div></div>`;
+  addPurchaseLine();
+  document.getElementById('pSupplier').focus();
+}
+function addPurchaseLine(){
+  const wrap = document.getElementById('purchaseLinesWrap');
+  const idx = purchaseLineCount++;
+  const row = document.createElement('div');
+  row.className = 'cart-row';
+  row.style.gridTemplateColumns = '1fr 64px 84px auto';
+  row.dataset.idx = idx;
+  row.innerHTML = `
+    <input class="pLineName" list="invNameList" placeholder="Item name" oninput="recalcPurchaseModal()" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;">
+    <input class="pLineQty" type="text" inputmode="numeric" value="1" oninput="recalcPurchaseModal()" style="width:64px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);text-align:center;">
+    <input class="pLineCost" type="text" inputmode="decimal" placeholder="0.00" oninput="recalcPurchaseModal()" style="width:84px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);">
+    <button class="rm" onclick="this.closest('.cart-row').remove(); recalcPurchaseModal();">✕</button>`;
+  wrap.appendChild(row);
+  recalcPurchaseModal();
+}
+function readPurchaseLines(){
+  return Array.from(document.querySelectorAll('#purchaseLinesWrap .cart-row')).map(row=>{
+    const name = row.querySelector('.pLineName').value.trim();
+    const qty = parseInt(row.querySelector('.pLineQty').value)||0;
+    const cost = parseFloat(row.querySelector('.pLineCost').value)||0;
+    return {name, qty, cost};
+  }).filter(l=>l.name && l.qty>0);
+}
+function recalcPurchaseModal(){
+  const lines = readPurchaseLines();
+  const subtotal = lines.reduce((s,l)=>s+l.qty*l.cost,0);
+  const vatOn = document.getElementById('pVat')?.checked;
+  const vat = vatOn ? subtotal*VAT_RATE : 0;
+  const total = subtotal+vat;
+  const el = document.getElementById('purchaseTotalsPreview');
+  if(el) el.innerHTML = `
+    <div class="trow"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    <div class="trow"><span>VAT</span><span>${money(vat)}</span></div>
+    <div class="trow grand"><span>Total</span><span>${money(total)}</span></div>`;
+}
+async function confirmPurchase(){
+  const supplier = document.getElementById('pSupplier').value.trim();
+  const reference = document.getElementById('pReference').value.trim();
+  const lines = readPurchaseLines();
+  if(!supplier){ showToast('Enter a supplier name'); return; }
+  if(lines.length===0){ showToast('Add at least one item with a quantity'); return; }
+  const vatOn = document.getElementById('pVat').checked;
+  const subtotal = lines.reduce((s,l)=>s+l.qty*l.cost,0);
+  const vat = vatOn ? subtotal*VAT_RATE : 0;
+  const total = subtotal+vat;
+  const purchaseFields = { time: Date.now(), supplier, reference, items: lines, subtotal, vat, total, vatIncluded: vatOn };
+  let result;
+  try{
+    result = await submitPurchase(purchaseFields);
+  }catch(e){
+    console.error('confirmPurchase failed', e);
+    showToast('Could not save purchase — try again');
+    return;
+  }
+  inventory = result.inventory;
+  purchaseCounter = result.purchaseCounter;
+  renderProducts(); renderInventory();
+  closeModal();
+  showToast('Purchase recorded — '+money(total));
+}
+function filteredPurchases(){
+  const q = (document.getElementById('purchaseSearch')?.value||'').trim().toLowerCase();
+  let list = purchases.slice().reverse();
+  if(q) list = list.filter(p=>(p.purchaseNo||'').toLowerCase().includes(q) || (p.supplier||'').toLowerCase().includes(q));
+  return list;
+}
+function renderPurchases(){
+  const tb = document.getElementById('purchasesTable');
+  if(!tb) return;
+  const list = filteredPurchases();
+  tb.innerHTML = list.map(p=>`<tr>
+    <td>${p.purchaseNo||'—'}</td>
+    <td class="txt">${new Date(p.time).toLocaleString()}</td>
+    <td class="txt">${esc(p.supplier||'—')}</td>
+    <td>${p.items.reduce((s,i)=>s+i.qty,0)}</td>
+    <td>${money(p.total)}</td>
+    <td class="txt" style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn" onclick="printPurchase('${p.id}')">Print</button>
+      <button class="btn danger" onclick="deletePurchase('${p.id}')">Delete</button>
+    </td>
+  </tr>`).join('') || `<tr><td colspan="6" class="txt" style="text-align:center;color:var(--text-dim);">No purchases recorded yet.</td></tr>`;
+}
+async function deletePurchase(id){
+  const purchase = purchases.find(x=>x.id===id);
+  if(!purchase) return;
+  if(!confirm(`Delete purchase ${purchase.purchaseNo}? Stock it added will be reversed (down to a minimum of 0). This does not undo any sales already made from that stock.`)) return;
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const purchaseDocRef = purchasesCol().doc(purchase.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      purchase.items.forEach(line=>{
+        const p = inv.find(x=>x.name.toLowerCase()===line.name.toLowerCase());
+        if(p) p.stock = Math.max(0, p.stock - line.qty);
+      });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.delete(purchaseDocRef);
+    });
+  }catch(e){
+    console.error('deletePurchase failed', e);
+    showToast('Could not delete purchase — try again');
+    return;
+  }
+  showToast('Purchase deleted and stock adjusted');
+}
+function printPurchase(id){
+  const p = purchases.find(x=>x.id===id);
+  if(!p) return;
+  const area = document.getElementById('printArea');
+  const rows = p.items.map(i=>`<tr><td>${esc(i.name)} x${i.qty}</td><td style="text-align:right;">${money(i.cost*i.qty)}</td></tr>`).join('');
+  area.className = '';
+  area.innerHTML = `<div class="receipt">
+    <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br>${new Date(p.time).toLocaleString()}</div>
+    <div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** PURCHASE RECORD ***</div>
+    <div class="c" style="margin-top:4px;">Purchase No: <b>${p.purchaseNo}</b>${p.reference?'<br>Ref: '+esc(p.reference):''}</div>
+    <div class="c">Supplier: ${esc(p.supplier||'—')}</div>
+    <hr>
+    <table>${rows}</table>
+    <hr>
+    <table>
+      <tr><td>Subtotal</td><td style="text-align:right;">${money(p.subtotal)}</td></tr>
+      <tr><td>VAT</td><td style="text-align:right;">${money(p.vat)}</td></tr>
+      <tr><td><b>TOTAL</b></td><td style="text-align:right;"><b>${money(p.total)}</b></td></tr>
+    </table>
+    <hr><div class="c">Purchase record — not a sale</div>
+  </div>`;
+  setTimeout(()=>window.print(), 80);
+}
+
 /* ---------- Ledger helpers (cancellations & returns net out totals) ---------- */
 function returnedQtyFor(saleId, itemId){
   return returns.filter(r=>r.saleId===saleId).reduce((s,r)=>{
@@ -1535,6 +1756,7 @@ function generateVat201(){
   const to = new Date(toVal+'T23:59:59').getTime();
   const list = sales.filter(s=>s.time>=from && s.time<=to && s.status!=='cancelled');
   const retList = returns.filter(r=>r.time>=from && r.time<=to);
+  const purList = purchases.filter(p=>p.time>=from && p.time<=to);
 
   const salesTaxable = list.reduce((s,x)=>s+(x.subtotal-x.discount),0);
   const salesVat = list.reduce((s,x)=>s+x.vat,0);
@@ -1542,7 +1764,8 @@ function generateVat201(){
   const retVat = retList.reduce((s,x)=>s+x.vat,0);
   const taxableValue = salesTaxable - retTaxable; // net of discount, returns, excl. VAT
   const outputVat = salesVat - retVat;
-  const inputVat = 0; // purchases/expenses are not tracked by this till — enter manually if applicable
+  const purchasesTaxable = purList.reduce((s,x)=>s+x.subtotal,0);
+  const inputVat = purList.reduce((s,x)=>s+x.vat,0); // from recorded purchases in this period
   const payable = outputVat - inputVat;
 
   const emirates = ['Abu Dhabi','Dubai','Sharjah','Ajman','Umm Al Quwain','Ras Al Khaimah','Fujairah'];
@@ -1578,12 +1801,12 @@ function generateVat201(){
     <h3>Input tax (Box 9–11)</h3>
     <table>
       <tbody>
-        <tr><td style="width:60%;">Box 9 — Standard rated expenses</td><td class="num" style="width:20%;">0.00</td><td class="num" style="width:20%;">0.00</td></tr>
+        <tr><td style="width:60%;">Box 9 — Standard rated expenses</td><td class="num" style="width:20%;">${purchasesTaxable.toFixed(2)}</td><td class="num" style="width:20%;">${inputVat.toFixed(2)}</td></tr>
         <tr><td>Box 10 — Supplies subject to reverse charge (input side)</td><td class="num">0.00</td><td class="num">0.00</td></tr>
-        <tr class="total"><td>Box 11 — Total recoverable input tax</td><td class="num">0.00</td><td class="num">${inputVat.toFixed(2)}</td></tr>
+        <tr class="total"><td>Box 11 — Total recoverable input tax</td><td class="num">${purchasesTaxable.toFixed(2)}</td><td class="num">${inputVat.toFixed(2)}</td></tr>
       </tbody>
     </table>
-    <div class="meta" style="margin-top:-10px;">Note: this till records sales only — purchase/expense input VAT isn't tracked here and must be added manually before filing.</div>
+    <div class="meta" style="margin-top:-10px;">Box 9 is drawn from ${purList.length} purchase(s) recorded in this period (${money(purchasesTaxable)} net, ${money(inputVat)} VAT). Purchases without VAT (unchecked "Include VAT") contribute 0 here. Any other expenses not entered as a Purchase must still be added manually.</div>
 
     <h3>Net VAT due</h3>
     <table>
