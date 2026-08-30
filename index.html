@@ -689,7 +689,8 @@ function bindScanner(){
   document.addEventListener('click', e=>{
     if(document.getElementById('view-sale').style.display!=='none' &&
        !e.target.closest('.modal') &&
-       !e.target.closest('input, select, textarea')){
+       !e.target.closest('input, select, textarea') &&
+       !document.querySelector('.modal')){
       input.focus();
     }
   });
