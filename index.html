@@ -100,6 +100,13 @@
   .disc-row{display:flex;gap:6px;padding:10px 18px;border-top:1px dashed var(--line);align-items:center;}
   .disc-row select,.disc-row input{padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:12px;}
   .disc-row input{width:70px;font-family:var(--mono);}
+  .vat-toggle-row{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-top:1px dashed var(--line);font-size:12px;font-weight:700;color:var(--text-dim);}
+  .switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;}
+  .switch input{opacity:0;width:0;height:0;}
+  .switch-slider{position:absolute;inset:0;cursor:pointer;background:#CBD2CC;border-radius:22px;transition:.15s;}
+  .switch-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .switch input:checked + .switch-slider{background:var(--till);}
+  .switch input:checked + .switch-slider:before{transform:translateX(16px);}
   .pay-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px 8px 18px;}
   .pay-btn{padding:14px 8px;border-radius:10px;border:none;font-weight:700;font-size:14px;color:#fff;}
   .pay-btn.cash{background:var(--till);}
@@ -246,10 +253,17 @@
             <select id="discType"><option value="percent">%</option><option value="fixed">AED</option></select>
             <input id="discVal" type="text" inputmode="decimal" value="0">
           </div>
+          <div class="vat-toggle-row">
+            <span>Prices include VAT</span>
+            <label class="switch">
+              <input type="checkbox" id="vatInclusiveToggle" onchange="setVatInclusive(this.checked)">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
           <div class="totals">
             <div class="trow"><span>Subtotal</span><span id="tSub">AED 0.00</span></div>
             <div class="trow"><span>Discount</span><span id="tDisc">− AED 0.00</span></div>
-            <div class="trow"><span>VAT (5%)</span><span id="tVat">AED 0.00</span></div>
+            <div class="trow"><span id="tVatLbl">VAT (5%)</span><span id="tVat">AED 0.00</span></div>
             <div class="trow grand"><span>Total</span><span id="tGrand">AED 0.00</span></div>
           </div>
           <div class="pay-row">
@@ -526,6 +540,7 @@ function subscribeMeta(){
     zHistory = data.zHistory || [];
     invoiceCounter = data.invoiceCounter || 1000;
     purchaseCounter = data.purchaseCounter || 1000;
+    vatInclusive = !!data.vatInclusive;
     if(data.authHash) currentAuthHash = data.authHash;
     document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
     renderProducts(); renderCart(); renderInventory(); renderHeld(); renderReport();
@@ -561,6 +576,7 @@ let zHistory = [];
 let invoiceCounter = 1000;
 let purchases = [];
 let purchaseCounter = 1000;
+let vatInclusive = false;
 
 const VAT_RATE = 0.05;
 const money = n => 'AED ' + (Math.round(n*100)/100).toFixed(2);
@@ -815,16 +831,29 @@ function changeCartPrice(id, value){
   renderCart();
 }
 
+/* Computes VAT + total for a net-of-discount amount, either adding VAT on
+   top (exclusive) or extracting it from within (inclusive). */
+function computeVat(net, inclusive){
+  if(inclusive){
+    const taxable = net/(1+VAT_RATE);
+    return { vat: net-taxable, total: net };
+  }
+  const vat = net*VAT_RATE;
+  return { vat, total: net+vat };
+}
 function calcTotals(){
   const subtotal = cart.reduce((s,r)=>s+r.price*r.qty,0);
   const discType = document.getElementById('discType').value;
   const discValRaw = parseFloat(document.getElementById('discVal').value)||0;
   let discount = discType==='percent' ? subtotal*discValRaw/100 : discValRaw;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
-  return {subtotal,discount,vat,total};
+  const {vat, total} = computeVat(subtotal-discount, vatInclusive);
+  return {subtotal,discount,vat,total,vatInclusive};
+}
+function setVatInclusive(on){
+  vatInclusive = on;
+  renderCart();
+  sSet('vatInclusive', on);
 }
 
 function renderCart(){
@@ -858,9 +887,12 @@ function renderCart(){
     });
   }
   document.getElementById('itemCount').textContent = cart.reduce((s,r)=>s+r.qty,0)+' items';
+  const vatToggle = document.getElementById('vatInclusiveToggle');
+  if(vatToggle) vatToggle.checked = vatInclusive;
   const t = calcTotals();
   document.getElementById('tSub').textContent = money(t.subtotal);
   document.getElementById('tDisc').textContent = '− '+money(t.discount);
+  document.getElementById('tVatLbl').textContent = vatInclusive ? 'VAT (5%, included)' : 'VAT (5%)';
   document.getElementById('tVat').textContent = money(t.vat);
   document.getElementById('tGrand').textContent = money(t.total);
   const disabled = cart.length===0;
@@ -969,7 +1001,7 @@ async function completeSale(method){
   const tendered = method==='cash' ? parseFloat(document.getElementById('tendered')?.value||0) : t.total;
   const saleFields = {
     time: Date.now(), items: JSON.parse(JSON.stringify(cart)),
-    subtotal:t.subtotal, discount:t.discount, vat:t.vat, total:t.total,
+    subtotal:t.subtotal, discount:t.discount, vat:t.vat, total:t.total, vatInclusive:t.vatInclusive,
     payment: method, tendered, change: method==='cash'? tendered-t.total : 0,
     status: 'completed'
   };
@@ -1009,7 +1041,7 @@ function receiptInnerHtml(sale, isDuplicate, qrId){
     <table>
       <tr><td>Subtotal</td><td style="text-align:right;">${money(sale.subtotal)}</td></tr>
       <tr><td>Discount</td><td style="text-align:right;">− ${money(sale.discount)}</td></tr>
-      <tr><td>VAT (5%)</td><td style="text-align:right;">${money(sale.vat)}</td></tr>
+      <tr><td>${sale.vatInclusive?'VAT (5%, included)':'VAT (5%)'}</td><td style="text-align:right;">${money(sale.vat)}</td></tr>
       <tr><td><b>TOTAL</b></td><td style="text-align:right;"><b>${money(sale.total)}</b></td></tr>
       <tr><td>Payment</td><td style="text-align:right;">${sale.payment.toUpperCase()}</td></tr>
       ${sale.payment==='cash'? `<tr><td>Tendered</td><td style="text-align:right;">${money(sale.tendered)}</td></tr><tr><td>Change</td><td style="text-align:right;">${money(sale.change)}</td></tr>`:''}
@@ -1681,13 +1713,11 @@ function recalcEditModal(saleId){
   const subtotal = items.reduce((s,r)=>s+r.price*r.qty,0);
   let discount = parseFloat(document.getElementById('editDisc').value)||0;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
   document.getElementById('editTotalsPreview').innerHTML = `
     <div class="trow"><span>Subtotal</span><span>${money(subtotal)}</span></div>
     <div class="trow"><span>Discount</span><span>− ${money(discount)}</span></div>
-    <div class="trow"><span>VAT (5%)</span><span>${money(vat)}</span></div>
+    <div class="trow"><span>${sale.vatInclusive?'VAT (5%, included)':'VAT (5%)'}</span><span>${money(vat)}</span></div>
     <div class="trow grand"><span>Total</span><span>${money(total)}</span></div>`;
 }
 async function saveEditedSale(id){
@@ -1698,9 +1728,7 @@ async function saveEditedSale(id){
   const subtotal = newItems.reduce((s,r)=>s+r.price*r.qty,0);
   let discount = parseFloat(document.getElementById('editDisc').value)||0;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
   try{
     await authReady;
     const metaDocRef = metaRef();
@@ -1762,9 +1790,7 @@ async function confirmReturn(id){
   if(retItems.length===0){ showToast('Enter a quantity to return'); return; }
   const subtotal = retItems.reduce((s,r)=>s+r.price*r.qty,0);
   const discount = subtotal*discountRate;
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
   let ret;
   try{
     await authReady;
@@ -1830,9 +1856,9 @@ function generateVat201(){
   const retList = returns.filter(r=>r.time>=from && r.time<=to);
   const purList = purchases.filter(p=>p.time>=from && p.time<=to);
 
-  const salesTaxable = list.reduce((s,x)=>s+(x.subtotal-x.discount),0);
+  const salesTaxable = list.reduce((s,x)=>s+(x.total-x.vat),0); // total-vat is mode-agnostic (works whether the sale's prices were VAT-inclusive or exclusive)
   const salesVat = list.reduce((s,x)=>s+x.vat,0);
-  const retTaxable = retList.reduce((s,x)=>s+(x.subtotal-x.discount),0);
+  const retTaxable = retList.reduce((s,x)=>s+(x.total-x.vat),0);
   const retVat = retList.reduce((s,x)=>s+x.vat,0);
   const taxableValue = salesTaxable - retTaxable; // net of discount, returns, excl. VAT
   const outputVat = salesVat - retVat;
