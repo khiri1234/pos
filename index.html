@@ -1183,6 +1183,7 @@ function openPurchaseModal(){
     <datalist id="invNameList">${nameOptions}</datalist>
     <div class="form-grid">
       <div><label>Supplier</label><input id="pSupplier" placeholder="Supplier name"></div>
+      <div><label>Supplier TRN (optional)</label><input id="pSupplierTRN" placeholder="e.g. 100362439000003"></div>
       <div><label>Reference (optional)</label><input id="pReference" placeholder="Supplier invoice #"></div>
     </div>
     <label style="font-size:11px;color:var(--text-dim);font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px;">Items</label>
@@ -1237,6 +1238,7 @@ function recalcPurchaseModal(){
 }
 async function confirmPurchase(){
   const supplier = document.getElementById('pSupplier').value.trim();
+  const supplierTRN = document.getElementById('pSupplierTRN').value.trim();
   const reference = document.getElementById('pReference').value.trim();
   const lines = readPurchaseLines();
   if(!supplier){ showToast('Enter a supplier name'); return; }
@@ -1245,7 +1247,7 @@ async function confirmPurchase(){
   const subtotal = lines.reduce((s,l)=>s+l.qty*l.cost,0);
   const vat = vatOn ? subtotal*VAT_RATE : 0;
   const total = subtotal+vat;
-  const purchaseFields = { time: Date.now(), supplier, reference, items: lines, subtotal, vat, total, vatIncluded: vatOn };
+  const purchaseFields = { time: Date.now(), supplier, supplierTRN, reference, items: lines, subtotal, vat, total, vatIncluded: vatOn };
   let result;
   try{
     result = await submitPurchase(purchaseFields);
@@ -1263,7 +1265,7 @@ async function confirmPurchase(){
 function filteredPurchases(){
   const q = (document.getElementById('purchaseSearch')?.value||'').trim().toLowerCase();
   let list = purchases.slice().reverse();
-  if(q) list = list.filter(p=>(p.purchaseNo||'').toLowerCase().includes(q) || (p.supplier||'').toLowerCase().includes(q));
+  if(q) list = list.filter(p=>(p.purchaseNo||'').toLowerCase().includes(q) || (p.supplier||'').toLowerCase().includes(q) || (p.supplierTRN||'').toLowerCase().includes(q));
   return list;
 }
 function renderPurchases(){
@@ -1273,7 +1275,7 @@ function renderPurchases(){
   tb.innerHTML = list.map(p=>`<tr>
     <td>${p.purchaseNo||'—'}</td>
     <td class="txt">${new Date(p.time).toLocaleString()}</td>
-    <td class="txt">${esc(p.supplier||'—')}</td>
+    <td class="txt"><b>${esc(p.supplier||'—')}</b>${p.supplierTRN?`<div class="bc">TRN ${esc(p.supplierTRN)}</div>`:''}</td>
     <td>${p.items.reduce((s,i)=>s+i.qty,0)}</td>
     <td>${money(p.total)}</td>
     <td class="txt" style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1318,7 +1320,7 @@ function printPurchase(id){
     <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br>${new Date(p.time).toLocaleString()}</div>
     <div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** PURCHASE RECORD ***</div>
     <div class="c" style="margin-top:4px;">Purchase No: <b>${p.purchaseNo}</b>${p.reference?'<br>Ref: '+esc(p.reference):''}</div>
-    <div class="c">Supplier: ${esc(p.supplier||'—')}</div>
+    <div class="c">Supplier: ${esc(p.supplier||'—')}${p.supplierTRN?'<br>Supplier TRN: '+esc(p.supplierTRN):''}</div>
     <hr>
     <table>${rows}</table>
     <hr>
