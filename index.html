@@ -190,16 +190,29 @@
   .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:60;}
 
   /* Auth gate */
-  #authGate{position:fixed;inset:0;background:var(--panel);display:flex;align-items:center;justify-content:center;z-index:100;}
-  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35);}
-  .auth-box .dot{width:12px;height:12px;border-radius:50%;background:var(--till);margin:0 auto 10px auto;box-shadow:0 0 0 4px rgba(46,125,91,.2);}
+  #authGate{position:fixed;inset:0;background:var(--panel);display:flex;align-items:center;justify-content:center;z-index:100;transition:opacity .45s ease, transform .45s ease;}
+  #authGate.fading{opacity:0;transform:scale(1.04);pointer-events:none;}
+  @keyframes authIn{from{opacity:0;transform:translateY(14px) scale(.94);}to{opacity:1;transform:translateY(0) scale(1);}}
+  @keyframes authShake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(5px);}30%,50%,70%{transform:translateX(-9px);}40%,60%{transform:translateX(9px);}}
+  @keyframes dotPulse{0%,100%{box-shadow:0 0 0 4px rgba(46,125,91,.2);}50%{box-shadow:0 0 0 8px rgba(46,125,91,.08);}}
+  @keyframes checkPop{0%{transform:scale(0) rotate(-15deg);opacity:0;}55%{transform:scale(1.15) rotate(4deg);opacity:1;}100%{transform:scale(1) rotate(0);opacity:1;}}
+  @keyframes checkDraw{to{stroke-dashoffset:0;}}
+  @keyframes appIn{from{opacity:0;}to{opacity:1;}}
+  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35);animation:authIn .5s cubic-bezier(.22,.9,.28,1);}
+  .auth-box.shake{animation:authShake .5s;}
+  .auth-box .dot{width:12px;height:12px;border-radius:50%;background:var(--till);margin:0 auto 10px auto;box-shadow:0 0 0 4px rgba(46,125,91,.2);animation:dotPulse 2.2s ease-in-out infinite;}
   .auth-box h2{margin:0 0 2px 0;font-size:18px;}
   .auth-box .ar{font-size:13px;color:var(--text-dim);margin-bottom:4px;}
   .auth-box .sub{font-size:12px;color:var(--text-dim);margin-bottom:18px;}
-  .auth-box input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:10px;text-align:center;letter-spacing:.1em;}
-  .auth-box input:focus{outline:none;border-color:var(--till);}
-  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;}
+  .auth-box input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:10px;text-align:center;letter-spacing:.1em;transition:border-color .15s, box-shadow .15s;}
+  .auth-box input:focus{outline:none;border-color:var(--till);box-shadow:0 0 0 4px rgba(46,125,91,.15);}
+  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;transition:transform .12s, box-shadow .12s;}
+  .auth-box .btn.primary:active{transform:scale(.97);}
   .auth-err{color:var(--red);font-size:12px;font-weight:600;min-height:16px;margin-bottom:6px;}
+  .auth-check{width:60px;height:60px;margin:0 auto 14px auto;animation:checkPop .5s cubic-bezier(.34,1.56,.64,1);}
+  .auth-check circle{stroke-dasharray:170;stroke-dashoffset:170;animation:checkDraw .55s .05s ease forwards;}
+  .auth-check path{stroke-dasharray:38;stroke-dashoffset:38;animation:checkDraw .3s .55s ease forwards;}
+  #appRoot.revealing{animation:appIn .45s ease;}
   .lock-link{background:none;border:none;color:#9FB0A6;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;}
 </style>
 </head>
@@ -1994,12 +2007,38 @@ function renderLoginScreen(){
 async function attemptLogin(){
   const val = document.getElementById('loginPw').value;
   if(simpleHash(val)===currentAuthHash) unlockApp();
-  else document.getElementById('authErr').textContent = 'Incorrect password';
+  else{
+    document.getElementById('authErr').textContent = 'Incorrect password';
+    const box = document.querySelector('.auth-box');
+    if(box){
+      box.classList.remove('shake'); void box.offsetWidth;
+      box.classList.add('shake');
+    }
+  }
 }
 function unlockApp(){
-  document.getElementById('authGate').style.display='none';
-  document.getElementById('appRoot').style.visibility='visible';
-  init();
+  const gate = document.getElementById('authGate');
+  const box = gate.querySelector('.auth-box');
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reveal = ()=>{
+    gate.style.display='none';
+    const appRoot = document.getElementById('appRoot');
+    appRoot.style.visibility='visible';
+    appRoot.classList.add('revealing');
+    init();
+  };
+  if(!box || reduceMotion){ reveal(); return; }
+  box.innerHTML = `
+    <svg class="auth-check" viewBox="0 0 64 64" fill="none">
+      <circle cx="32" cy="32" r="27" stroke="#2E7D5B" stroke-width="4"/>
+      <path d="M20 33 L28 41 L44 24" stroke="#2E7D5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h2>Welcome back</h2>
+    <div class="sub">Unlocking the till…</div>`;
+  setTimeout(()=>{
+    gate.classList.add('fading');
+    setTimeout(reveal, 460);
+  }, 700);
 }
 function lockApp(){
   location.reload();
