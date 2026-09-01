@@ -198,7 +198,9 @@
   @keyframes checkPop{0%{transform:scale(0) rotate(-15deg);opacity:0;}55%{transform:scale(1.15) rotate(4deg);opacity:1;}100%{transform:scale(1) rotate(0);opacity:1;}}
   @keyframes checkDraw{to{stroke-dashoffset:0;}}
   @keyframes appIn{from{opacity:0;}to{opacity:1;}}
-  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35);animation:authIn .5s cubic-bezier(.22,.9,.28,1);}
+  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;
+    box-shadow:calc(var(--lx,0) * 8px) calc(20px + var(--ly,0) * 8px) 60px rgba(0,0,0,.35);
+    animation:authIn .5s cubic-bezier(.22,.9,.28,1);}
   .auth-box.shake{animation:authShake .5s;}
   .auth-box .dot{width:12px;height:12px;border-radius:50%;background:var(--till);margin:0 auto 10px auto;box-shadow:0 0 0 4px rgba(46,125,91,.2);animation:dotPulse 2.2s ease-in-out infinite;}
   .auth-box h2{margin:0 0 2px 0;font-size:18px;}
@@ -206,12 +208,26 @@
   .auth-box .sub{font-size:12px;color:var(--text-dim);margin-bottom:18px;}
   .auth-box input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:10px;text-align:center;letter-spacing:.1em;transition:border-color .15s, box-shadow .15s;}
   .auth-box input:focus{outline:none;border-color:var(--till);box-shadow:0 0 0 4px rgba(46,125,91,.15);}
-  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;transition:transform .12s, box-shadow .12s;}
+  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;transition:transform .12s, box-shadow .12s;position:relative;overflow:hidden;}
   .auth-box .btn.primary:active{transform:scale(.97);}
   .auth-err{color:var(--red);font-size:12px;font-weight:600;min-height:16px;margin-bottom:6px;}
   .auth-check{width:60px;height:60px;margin:0 auto 14px auto;animation:checkPop .5s cubic-bezier(.34,1.56,.64,1);}
   .auth-check circle{stroke-dasharray:170;stroke-dashoffset:170;animation:checkDraw .55s .05s ease forwards;}
   .auth-check path{stroke-dasharray:38;stroke-dashoffset:38;animation:checkDraw .3s .55s ease forwards;}
+
+  /* Login PIN cells: one shared "lamp" (the pointer) lights every cell's
+     edge in sync, via --lx/--ly custom properties set on #authGate. */
+  .pin-wrap{position:relative;height:50px;margin-bottom:14px;}
+  .pin-wrap input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;padding:0;margin:0;cursor:text;z-index:2;}
+  .pin-row{display:flex;gap:7px;justify-content:center;pointer-events:none;flex-wrap:wrap;}
+  .pin-cell{width:34px;height:42px;border-radius:9px;border:1.5px solid var(--line);background:#fafbfa;
+    display:flex;align-items:center;justify-content:center;transition:border-color .12s, transform .12s;
+    box-shadow:calc(var(--lx,0) * -5px) calc(var(--ly,0) * -5px) 10px rgba(27,35,32,.14);}
+  .pin-cell.active{border-color:var(--till);box-shadow:calc(var(--lx,0) * -5px) calc(var(--ly,0) * -5px) 10px rgba(46,125,91,.3), 0 0 0 3px rgba(46,125,91,.14);}
+  .pin-cell.filled::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--till);animation:cellPop .18s cubic-bezier(.34,1.56,.64,1);}
+  @keyframes cellPop{from{transform:scale(0);}to{transform:scale(1);}}
+  @keyframes verifySweep{from{background-position:220% 0;}to{background-position:-40% 0;}}
+  .btn.primary.verifying{background-image:linear-gradient(100deg, var(--till) 35%, #64c395 50%, var(--till) 65%);background-size:280% 100%;animation:verifySweep .7s linear infinite;pointer-events:none;}
   #appRoot.revealing{animation:appIn .45s ease;}
   .lock-link{background:none;border:none;color:#9FB0A6;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;}
 </style>
@@ -1988,6 +2004,30 @@ async function confirmSetupPassword(){
   await sSet('auth-hash', simpleHash(p1));
   unlockApp();
 }
+/* A single shared "lamp" (the pointer) lights every pin-cell's edge in
+   sync - the offset is stored on #authGate (which survives screen
+   swaps) so it cascades to whichever cells are on screen. */
+function bindAuthLamp(){
+  const gate = document.getElementById('authGate');
+  document.addEventListener('mousemove', e=>{
+    if(!gate || gate.style.display==='none') return;
+    const r = gate.getBoundingClientRect();
+    const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left+r.width/2)) / (r.width/2)));
+    const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top+r.height/2)) / (r.height/2)));
+    gate.style.setProperty('--lx', dx.toFixed(3));
+    gate.style.setProperty('--ly', dy.toFixed(3));
+  });
+}
+function renderPinCells(value){
+  const row = document.getElementById('pinRow');
+  if(!row) return;
+  const count = Math.max(4, Math.min(12, value.length + (value.length<12?1:0)));
+  row.innerHTML = Array.from({length:count}, (_,i)=>{
+    const filled = i < value.length;
+    const active = i === value.length;
+    return `<div class="pin-cell${filled?' filled':''}${active?' active':''}"></div>`;
+  }).join('');
+}
 function renderLoginScreen(){
   const gate = document.getElementById('authGate');
   gate.innerHTML = `<div class="auth-box">
@@ -1996,12 +2036,19 @@ function renderLoginScreen(){
     <div class="ar" dir="rtl">متجر خوري</div>
     <div class="sub">Enter password to unlock the till</div>
     <div class="auth-err" id="authErr"></div>
-    <input id="loginPw" type="password" placeholder="Password" autocomplete="current-password">
-    <button class="btn primary" onclick="attemptLogin()">Unlock</button>
+    <div class="pin-wrap">
+      <input id="loginPw" type="password" autocomplete="current-password">
+      <div class="pin-row" id="pinRow"></div>
+    </div>
+    <button class="btn primary" id="unlockBtn" onclick="attemptLogin()">Unlock</button>
   </div>`;
   const pw = document.getElementById('loginPw');
+  renderPinCells('');
   pw.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(); });
-  pw.addEventListener('input', ()=>{ if(pw.value && simpleHash(pw.value)===currentAuthHash) unlockApp(); });
+  pw.addEventListener('input', ()=>{
+    renderPinCells(pw.value);
+    if(pw.value && simpleHash(pw.value)===currentAuthHash) unlockApp();
+  });
   pw.focus();
 }
 async function attemptLogin(){
@@ -2014,6 +2061,8 @@ async function attemptLogin(){
       box.classList.remove('shake'); void box.offsetWidth;
       box.classList.add('shake');
     }
+    const pw = document.getElementById('loginPw');
+    if(pw){ pw.value=''; renderPinCells(''); pw.focus(); }
   }
 }
 function unlockApp(){
@@ -2028,17 +2077,27 @@ function unlockApp(){
     init();
   };
   if(!box || reduceMotion){ reveal(); return; }
-  box.innerHTML = `
-    <svg class="auth-check" viewBox="0 0 64 64" fill="none">
-      <circle cx="32" cy="32" r="27" stroke="#2E7D5B" stroke-width="4"/>
-      <path d="M20 33 L28 41 L44 24" stroke="#2E7D5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <h2>Welcome back</h2>
-    <div class="sub">Unlocking the till…</div>`;
-  setTimeout(()=>{
-    gate.classList.add('fading');
-    setTimeout(reveal, 460);
-  }, 700);
+  const showCheckmark = ()=>{
+    box.innerHTML = `
+      <svg class="auth-check" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="27" stroke="#2E7D5B" stroke-width="4"/>
+        <path d="M20 33 L28 41 L44 24" stroke="#2E7D5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h2>Welcome back</h2>
+      <div class="sub">Unlocking the till…</div>`;
+    setTimeout(()=>{
+      gate.classList.add('fading');
+      setTimeout(reveal, 460);
+    }, 700);
+  };
+  const btn = document.getElementById('unlockBtn');
+  if(btn){
+    btn.textContent = 'Verifying…';
+    btn.classList.add('verifying');
+    setTimeout(showCheckmark, 380);
+  }else{
+    showCheckmark();
+  }
 }
 function lockApp(){
   location.reload();
@@ -2071,6 +2130,7 @@ async function saveNewPassword(){
   showToast('Password updated');
 }
 
+bindAuthLamp();
 bootAuth();
 </script>
 </body>
