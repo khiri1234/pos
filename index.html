@@ -1041,7 +1041,7 @@ function receiptInnerHtml(sale, isDuplicate, qrId){
   return `
     <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b></div>
     <div class="c" style="margin-top:4px;"><b>Tax Invoice</b><br><b dir="rtl">فاتورة ضريبية</b></div>
-    <div class="c" style="font-size:10px;margin-top:4px;">Address: Abu Dhabi, Nasr Street, Bldg. No.45<br>Tel: +97126340501<br>Email: khoorytraders123@gmail.com</div>
+    <div class="c" style="font-size:10px;margin-top:4px;">Address: Abu Dhabi, Nasr Street, Bldg. No.45<br>Tel: +97126340501<br>Email: khoorytraders@yahoo.com</div>
     <div class="c" style="font-size:10px;margin-top:4px;">TRN 100362439000003<br>${new Date(sale.time).toLocaleString()}</div>
     ${isDuplicate ? '<div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** DUPLICATE COPY ***</div>' : ''}
     <div class="c" style="margin-top:4px;">Invoice No: <b>${sale.invoiceNo||'—'}</b></div>
