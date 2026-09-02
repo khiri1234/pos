@@ -7,6 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --ink:#1B2320;
@@ -58,6 +66,12 @@
   .scan-row{display:flex;gap:10px;margin-bottom:14px;}
   .scan-row input{flex:1;padding:13px 16px;border-radius:10px;border:2px solid var(--till);font-size:15px;font-family:var(--mono);background:#fff;outline:none;}
   .scan-row input:focus{box-shadow:0 0 0 3px rgba(46,125,91,.2);}
+  .sort-row{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
+  .sort-row>span{font-size:12px;font-weight:700;color:var(--text-dim);}
+  .sort-chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:12px;font-weight:600;color:var(--text-dim);}
+  .sort-chip:hover{border-color:var(--till);color:var(--till-dark);}
+  .sort-chip.active{border-color:var(--till);color:#fff;background:var(--till);}
+  .sort-chip.active .sort-ind{color:#fff;}
   .prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:520px;overflow:auto;padding-right:4px;}
   .prod-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;text-align:left;transition:.12s;}
   .prod-card:hover{border-color:var(--till);transform:translateY(-1px);}
@@ -65,6 +79,8 @@
   .prod-card .pr{font-family:var(--mono);font-weight:700;color:var(--till-dark);font-size:14px;}
   .prod-card .st{font-size:11px;color:var(--text-dim);margin-top:2px;}
   .prod-card .st.low{color:var(--red);font-weight:600;}
+  .prod-card.drag-ghost{opacity:.35;border:1.5px dashed var(--till);}
+  .prod-card.drag-active{box-shadow:0 8px 20px rgba(0,0,0,.18);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
 
   .ticket{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0;overflow:hidden;position:sticky;top:16px;}
   .ticket-head{padding:16px 18px;border-bottom:1px dashed var(--line);display:flex;justify-content:space-between;align-items:center;}
@@ -84,6 +100,13 @@
   .disc-row{display:flex;gap:6px;padding:10px 18px;border-top:1px dashed var(--line);align-items:center;}
   .disc-row select,.disc-row input{padding:7px 8px;border:1px solid var(--line);border-radius:7px;font-size:12px;}
   .disc-row input{width:70px;font-family:var(--mono);}
+  .vat-toggle-row{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-top:1px dashed var(--line);font-size:12px;font-weight:700;color:var(--text-dim);}
+  .switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;}
+  .switch input{opacity:0;width:0;height:0;}
+  .switch-slider{position:absolute;inset:0;cursor:pointer;background:#CBD2CC;border-radius:22px;transition:.15s;}
+  .switch-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .switch input:checked + .switch-slider{background:var(--till);}
+  .switch input:checked + .switch-slider:before{transform:translateX(16px);}
   .pay-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px 8px 18px;}
   .pay-btn{padding:14px 8px;border-radius:10px;border:none;font-weight:700;font-size:14px;color:#fff;}
   .pay-btn.cash{background:var(--till);}
@@ -100,6 +123,10 @@
   /* Tables */
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th{text-align:left;color:var(--text-dim);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:2px solid var(--line);}
+  th.sortable{cursor:pointer;user-select:none;}
+  th.sortable:hover{color:var(--till-dark);}
+  .sort-ind{display:inline-block;width:10px;font-family:var(--mono);color:var(--till-dark);}
+  .share-bar{margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
   td{padding:10px;border-bottom:1px solid #F1F3EF;font-family:var(--mono);}
   td.txt{font-family:var(--sans);}
   tr:hover td{background:#FAFBF9;}
@@ -129,6 +156,22 @@
     #printArea{display:block;position:absolute;top:0;left:0;width:280px;}
     #printArea.a4{width:100%;}
   }
+  /* Receipt "printing" animation: a paper strip feeds down out of a slot
+     before the browser print dialog opens. */
+  .print-anim{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:200;display:none;pointer-events:none;}
+  .print-anim.show{display:block;}
+  .print-anim-slot{width:300px;height:10px;background:var(--panel);border-radius:0 0 5px 5px;margin:0 auto;box-shadow:0 3px 10px rgba(0,0,0,.35);position:relative;z-index:2;}
+  .print-anim-window{width:280px;margin:0 auto;overflow:hidden;max-height:80vh;}
+  .print-anim-paper{width:100%;transform:translateY(-100%);transition:transform 1.05s cubic-bezier(.22,.9,.28,1);box-shadow:0 14px 28px rgba(0,0,0,.22);}
+  .print-anim-paper.feed{transform:translateY(0);}
+  .print-anim-body{background:#fff;}
+  .print-anim-tear{
+    height:12px;
+    background:
+      linear-gradient(-45deg, #fff 8px, transparent 0) 0 0/16px 16px repeat-x,
+      linear-gradient(45deg, #fff 8px, transparent 0) 0 0/16px 16px repeat-x;
+  }
+
   .receipt{font-family:var(--mono);font-size:12px;width:280px;padding:10px;}
   .receipt .c{text-align:center;}
   .receipt hr{border:none;border-top:1px dashed #000;margin:8px 0;}
@@ -147,16 +190,45 @@
   .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:60;}
 
   /* Auth gate */
-  #authGate{position:fixed;inset:0;background:var(--panel);display:flex;align-items:center;justify-content:center;z-index:100;}
-  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35);}
-  .auth-box .dot{width:12px;height:12px;border-radius:50%;background:var(--till);margin:0 auto 10px auto;box-shadow:0 0 0 4px rgba(46,125,91,.2);}
+  #authGate{position:fixed;inset:0;background:var(--panel);display:flex;align-items:center;justify-content:center;z-index:100;transition:opacity .45s ease, transform .45s ease;}
+  #authGate.fading{opacity:0;transform:scale(1.04);pointer-events:none;}
+  @keyframes authIn{from{opacity:0;transform:translateY(14px) scale(.94);}to{opacity:1;transform:translateY(0) scale(1);}}
+  @keyframes authShake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(5px);}30%,50%,70%{transform:translateX(-9px);}40%,60%{transform:translateX(9px);}}
+  @keyframes dotPulse{0%,100%{box-shadow:0 0 0 4px rgba(46,125,91,.2);}50%{box-shadow:0 0 0 8px rgba(46,125,91,.08);}}
+  @keyframes checkPop{0%{transform:scale(0) rotate(-15deg);opacity:0;}55%{transform:scale(1.15) rotate(4deg);opacity:1;}100%{transform:scale(1) rotate(0);opacity:1;}}
+  @keyframes checkDraw{to{stroke-dashoffset:0;}}
+  @keyframes appIn{from{opacity:0;}to{opacity:1;}}
+  .auth-box{background:#fff;border-radius:16px;padding:32px;width:340px;max-width:90vw;text-align:center;
+    box-shadow:calc(var(--lx,0) * 8px) calc(20px + var(--ly,0) * 8px) 60px rgba(0,0,0,.35);
+    animation:authIn .5s cubic-bezier(.22,.9,.28,1);}
+  .auth-box.shake{animation:authShake .5s;}
+  .auth-box .dot{width:12px;height:12px;border-radius:50%;background:var(--till);margin:0 auto 10px auto;box-shadow:0 0 0 4px rgba(46,125,91,.2);animation:dotPulse 2.2s ease-in-out infinite;}
   .auth-box h2{margin:0 0 2px 0;font-size:18px;}
   .auth-box .ar{font-size:13px;color:var(--text-dim);margin-bottom:4px;}
   .auth-box .sub{font-size:12px;color:var(--text-dim);margin-bottom:18px;}
-  .auth-box input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:10px;text-align:center;letter-spacing:.1em;}
-  .auth-box input:focus{outline:none;border-color:var(--till);}
-  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;}
+  .auth-box input{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:10px;text-align:center;letter-spacing:.1em;transition:border-color .15s, box-shadow .15s;}
+  .auth-box input:focus{outline:none;border-color:var(--till);box-shadow:0 0 0 4px rgba(46,125,91,.15);}
+  .auth-box .btn.primary{width:100%;padding:12px;font-size:14px;transition:transform .12s, box-shadow .12s;position:relative;overflow:hidden;}
+  .auth-box .btn.primary:active{transform:scale(.97);}
   .auth-err{color:var(--red);font-size:12px;font-weight:600;min-height:16px;margin-bottom:6px;}
+  .auth-check{width:60px;height:60px;margin:0 auto 14px auto;animation:checkPop .5s cubic-bezier(.34,1.56,.64,1);}
+  .auth-check circle{stroke-dasharray:170;stroke-dashoffset:170;animation:checkDraw .55s .05s ease forwards;}
+  .auth-check path{stroke-dasharray:38;stroke-dashoffset:38;animation:checkDraw .3s .55s ease forwards;}
+
+  /* Login PIN cells: one shared "lamp" (the pointer) lights every cell's
+     edge in sync, via --lx/--ly custom properties set on #authGate. */
+  .pin-wrap{position:relative;height:50px;margin-bottom:14px;}
+  .pin-wrap input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;padding:0;margin:0;cursor:text;z-index:2;}
+  .pin-row{display:flex;gap:7px;justify-content:center;pointer-events:none;flex-wrap:wrap;}
+  .pin-cell{width:34px;height:42px;border-radius:9px;border:1.5px solid var(--line);background:#fafbfa;
+    display:flex;align-items:center;justify-content:center;transition:border-color .12s, transform .12s;
+    box-shadow:calc(var(--lx,0) * -5px) calc(var(--ly,0) * -5px) 10px rgba(27,35,32,.14);}
+  .pin-cell.active{border-color:var(--till);box-shadow:calc(var(--lx,0) * -5px) calc(var(--ly,0) * -5px) 10px rgba(46,125,91,.3), 0 0 0 3px rgba(46,125,91,.14);}
+  .pin-cell.filled::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--till);animation:cellPop .18s cubic-bezier(.34,1.56,.64,1);}
+  @keyframes cellPop{from{transform:scale(0);}to{transform:scale(1);}}
+  @keyframes verifySweep{from{background-position:220% 0;}to{background-position:-40% 0;}}
+  .btn.primary.verifying{background-image:linear-gradient(100deg, var(--till) 35%, #64c395 50%, var(--till) 65%);background-size:280% 100%;animation:verifySweep .7s linear infinite;pointer-events:none;}
+  #appRoot.revealing{animation:appIn .45s ease;}
   .lock-link{background:none;border:none;color:#9FB0A6;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;}
 </style>
 </head>
@@ -167,6 +239,7 @@
     <div class="brand"><div class="dot"></div><div><span>Khoory Traders</span><small>متجر خوري · Point of Sale</small></div></div>
     <button class="nav-btn active" data-view="sale"><span class="ic">🧾</span>Sale</button>
     <button class="nav-btn" data-view="inventory"><span class="ic">📦</span>Inventory</button>
+    <button class="nav-btn" data-view="purchases"><span class="ic">🚚</span>Purchases</button>
     <button class="nav-btn" data-view="held"><span class="ic">⏸</span>Held Bills <span id="heldCount" style="margin-left:auto;font-family:var(--mono);"></span></button>
     <button class="nav-btn" data-view="invoices"><span class="ic">🔎</span>Invoices</button>
     <button class="nav-btn" data-view="reports"><span class="ic">📊</span>Reports</button>
@@ -182,7 +255,7 @@
     <!-- SALE VIEW -->
     <section id="view-sale">
       <div class="topbar">
-        <div><h1>New Sale</h1><div class="sub">Scan a barcode or search below</div></div>
+        <div><h1>New Sale</h1><div class="sub">Scan a barcode, search below, or press-and-drag a tile to rearrange it</div></div>
         <div class="pill" id="clock"></div>
       </div>
       <div class="sale-layout">
@@ -190,6 +263,13 @@
           <div class="scan-row">
             <input id="scanInput" type="text" placeholder="Scan barcode or type product name, then Enter…" autocomplete="off">
             <button class="btn primary" onclick="handleScanSubmit()">Add</button>
+          </div>
+          <div class="sort-row">
+            <span>Sort:</span>
+            <button class="sort-chip" data-field="name" onclick="sortSaleBy('name')">Name<span class="sort-ind" id="saleSortInd_name"></span></button>
+            <button class="sort-chip" data-field="price" onclick="sortSaleBy('price')">Price<span class="sort-ind" id="saleSortInd_price"></span></button>
+            <button class="sort-chip" data-field="stock" onclick="sortSaleBy('stock')">Stock<span class="sort-ind" id="saleSortInd_stock"></span></button>
+            <button class="sort-chip" data-field="category" onclick="sortSaleBy('category')">Category<span class="sort-ind" id="saleSortInd_category"></span></button>
           </div>
           <div class="prod-grid" id="prodGrid"></div>
         </div>
@@ -200,12 +280,19 @@
           <div class="disc-row">
             <span style="font-size:12px;font-weight:700;color:var(--text-dim);">Discount</span>
             <select id="discType"><option value="percent">%</option><option value="fixed">AED</option></select>
-            <input id="discVal" type="number" min="0" value="0" step="0.5">
+            <input id="discVal" type="text" inputmode="decimal" value="0">
+          </div>
+          <div class="vat-toggle-row">
+            <span>Prices include VAT</span>
+            <label class="switch">
+              <input type="checkbox" id="vatInclusiveToggle" onchange="setVatInclusive(this.checked)">
+              <span class="switch-slider"></span>
+            </label>
           </div>
           <div class="totals">
             <div class="trow"><span>Subtotal</span><span id="tSub">AED 0.00</span></div>
             <div class="trow"><span>Discount</span><span id="tDisc">− AED 0.00</span></div>
-            <div class="trow"><span>VAT (5%)</span><span id="tVat">AED 0.00</span></div>
+            <div class="trow"><span id="tVatLbl">VAT (5%)</span><span id="tVat">AED 0.00</span></div>
             <div class="trow grand"><span>Total</span><span id="tGrand">AED 0.00</span></div>
           </div>
           <div class="pay-row">
@@ -221,13 +308,47 @@
     <!-- INVENTORY VIEW -->
     <section id="view-inventory" style="display:none;">
       <div class="topbar">
-        <div><h1>Inventory</h1><div class="sub">Manage items, prices, stock and barcodes</div></div>
+        <div><h1>Inventory</h1><div class="sub">Manage items, prices, stock and barcodes · click a column heading to sort</div></div>
         <button class="btn primary" onclick="openProductModal()">+ Add item</button>
+      </div>
+      <div class="card share-bar">
+        <b style="font-size:13px;">Share inventory</b>
+        <button class="btn" onclick="exportInventoryPDF()">📄 Export PDF</button>
+        <button class="btn" onclick="exportInventoryExcel()">📊 Export Excel</button>
+        <button class="btn" onclick="shareInventoryEmail()">✉️ Email</button>
+        <button class="btn" onclick="shareInventoryWhatsApp()">💬 WhatsApp</button>
+        <button class="btn" onclick="printInventory()">🖨️ Print</button>
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Item</th><th>Barcode</th><th>Category</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" onclick="sortInventoryBy('name')">Item<span class="sort-ind" id="sortInd_name"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('barcode')">Barcode<span class="sort-ind" id="sortInd_barcode"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('category')">Category<span class="sort-ind" id="sortInd_category"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('price')">Price<span class="sort-ind" id="sortInd_price"></span></th>
+            <th class="sortable" onclick="sortInventoryBy('stock')">Stock<span class="sort-ind" id="sortInd_stock"></span></th>
+            <th>Actions</th>
+          </tr></thead>
           <tbody id="invTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PURCHASES VIEW -->
+    <section id="view-purchases" style="display:none;">
+      <div class="topbar">
+        <div><h1>Purchases</h1><div class="sub">Record stock bought from suppliers — updates stock and cost automatically</div></div>
+        <button class="btn primary" onclick="openPurchaseModal()">+ Record purchase</button>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;">
+          <input id="purchaseSearch" placeholder="Search by supplier or purchase no. (e.g. PUR-001001)…" style="flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);" oninput="renderPurchases()">
+        </div>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Purchase No.</th><th>Date</th><th>Supplier</th><th>Items</th><th>Total</th><th>Actions</th></tr></thead>
+          <tbody id="purchasesTable"></tbody>
         </table>
       </div>
     </section>
@@ -242,6 +363,14 @@
     <section id="view-invoices" style="display:none;">
       <div class="topbar">
         <div><h1>Invoices</h1><div class="sub">Every sale ever recorded — look one up and reprint a duplicate</div></div>
+      </div>
+      <div class="card share-bar">
+        <b style="font-size:13px;">Share invoices</b>
+        <button class="btn" onclick="exportInvoicesPDF()">📄 Export PDF</button>
+        <button class="btn" onclick="exportInvoicesExcel()">📊 Export Excel</button>
+        <button class="btn" onclick="shareInvoicesEmail()">✉️ Email</button>
+        <button class="btn" onclick="shareInvoicesWhatsApp()">💬 WhatsApp</button>
+        <button class="btn" onclick="printInvoicesList()">🖨️ Print</button>
       </div>
       <div class="card" style="margin-bottom:16px;">
         <div style="display:flex;gap:10px;">
@@ -296,26 +425,173 @@
 </div>
 
 <div id="printArea"></div>
+<div class="print-anim" id="printAnim" aria-hidden="true">
+  <div class="print-anim-slot"></div>
+  <div class="print-anim-window">
+    <div class="print-anim-paper" id="printAnimPaper">
+      <div class="print-anim-body" id="printAnimBody"></div>
+      <div class="print-anim-tear"></div>
+    </div>
+  </div>
+</div>
 <div id="modalRoot"></div>
 
 <script>
-/* ---------- Storage helpers (personal, per-user) ---------- */
-const hasClaudeStorage = (typeof window.storage!=='undefined' && window.storage && typeof window.storage.get==='function');
+/* ---------- Firebase (cross-device persistence + live sync) ----------
+   All tills for this store share one Firestore project:
+     pos/meta      -> inventory, heldBills, shift, zHistory, invoiceCounter, authHash
+     pos_sales/*   -> one document per sale (never overwritten wholesale, so two
+                      tills ringing up sales at the same instant can't clobber
+                      each other)
+     pos_returns/* -> one document per return
+   Stock counts and invoice numbers are updated through Firestore transactions
+   so concurrent sales on different devices can't oversell stock or collide
+   on an invoice number. */
+const firebaseConfig = {
+  apiKey: "AIzaSyCP_TjAnxRw7DVfb6wpiK4hSUEFOOq5GnU",
+  authDomain: "khoorytraders-e6e92.firebaseapp.com",
+  projectId: "khoorytraders-e6e92",
+  storageBucket: "khoorytraders-e6e92.firebasestorage.app",
+  messagingSenderId: "473982541743",
+  appId: "1:473982541743:web:b931ad27f5a4025858595a"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('Offline persistence unavailable:', e.code));
+
+const authReady = new Promise((resolve, reject)=>{
+  const unsub = auth.onAuthStateChanged(user=>{
+    if(user){ unsub(); resolve(user); }
+  }, reject);
+  auth.signInAnonymously().catch(e=>{ console.error('Anonymous sign-in failed', e); reject(e); });
+});
+
+const metaRef = ()=> db.collection('pos').doc('meta');
+const salesCol = ()=> db.collection('pos_sales');
+const returnsCol = ()=> db.collection('pos_returns');
+const purchasesCol = ()=> db.collection('pos_purchases');
+
+const META_FIELD = { 'held-bills':'heldBills', 'auth-hash':'authHash' };
 async function sGet(key, fallback){
-  if(hasClaudeStorage){
-    try{ const r = await window.storage.get(key,false); return r? JSON.parse(r.value) : fallback; }
-    catch(e){ return fallback; }
-  }
-  try{ const raw = localStorage.getItem('khoory_pos_'+key); return raw!==null ? JSON.parse(raw) : fallback; }
-  catch(e){ return fallback; }
+  await authReady;
+  try{
+    const snap = await metaRef().get();
+    const data = snap.exists ? snap.data() : {};
+    const val = data[META_FIELD[key] || key];
+    return val!==undefined ? val : fallback;
+  }catch(e){ console.error('sGet failed for', key, e); return fallback; }
 }
 async function sSet(key, val){
-  if(hasClaudeStorage){
-    try{ await window.storage.set(key, JSON.stringify(val), false); return; }
-    catch(e){ console.error('storage set failed',e); return; }
-  }
-  try{ localStorage.setItem('khoory_pos_'+key, JSON.stringify(val)); }
-  catch(e){ console.error('localStorage set failed',e); }
+  await authReady;
+  try{ await metaRef().set({[META_FIELD[key] || key]: val}, {merge:true}); }
+  catch(e){ console.error('sSet failed for', key, e); }
+}
+
+/* Atomically read-modify-write the shared inventory array so two tills
+   editing stock/prices at the same instant can't silently drop each other's
+   change. Skips the write entirely if the mutator made no change. */
+async function mutateInventory(mutator){
+  await authReady;
+  return db.runTransaction(async tx=>{
+    const ref = metaRef();
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    const before = JSON.stringify(inv);
+    const extra = mutator(inv, data) || {};
+    if(JSON.stringify(inv)===before && Object.keys(extra).length===0) return {inventory: inv, skipped:true};
+    tx.set(ref, {inventory: inv, ...extra}, {merge:true});
+    return {inventory: inv};
+  });
+}
+
+/* Atomically allocate the next invoice number, decrement stock for the
+   items sold, and write the sale — all in one transaction. */
+async function submitSale(cartItems, saleFields){
+  await authReady;
+  const metaDocRef = metaRef();
+  const saleDocRef = salesCol().doc();
+  return db.runTransaction(async tx=>{
+    const snap = await tx.get(metaDocRef);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    cartItems.forEach(r=>{
+      const p = inv.find(x=>x.id===r.id);
+      if(p) p.stock = p.stock - r.qty; // allowed to go negative — selling out of stock still completes the sale
+    });
+    const nextCounter = (data.invoiceCounter||1000) + 1;
+    const invoiceNo = 'INV-' + String(nextCounter).padStart(6,'0');
+    const sale = {...saleFields, id: saleDocRef.id, invoiceNo};
+    tx.set(metaDocRef, {inventory: inv, invoiceCounter: nextCounter}, {merge:true});
+    tx.set(saleDocRef, sale);
+    return {sale, inventory: inv, invoiceCounter: nextCounter};
+  });
+}
+
+/* Atomically allocate the next purchase number, add the purchased stock
+   (matching items by name, creating a new inventory item when nothing
+   matches), and write the purchase record — all in one transaction. */
+async function submitPurchase(purchaseFields){
+  await authReady;
+  const metaDocRef = metaRef();
+  const purchaseDocRef = purchasesCol().doc();
+  return db.runTransaction(async tx=>{
+    const snap = await tx.get(metaDocRef);
+    const data = snap.exists ? snap.data() : {};
+    const inv = (data.inventory||[]).map(p=>({...p}));
+    purchaseFields.items.forEach(line=>{
+      const p = inv.find(x=>x.name.toLowerCase()===line.name.toLowerCase());
+      if(p){
+        p.stock = (p.stock||0) + line.qty;
+        if(line.cost>0) p.cost = line.cost;
+      }else{
+        inv.push({id:cid(), name:line.name, barcode:genBarcode(), price:line.cost, cost:line.cost, stock:line.qty, category:''});
+      }
+    });
+    const nextCounter = (data.purchaseCounter||1000) + 1;
+    const purchaseNo = 'PUR-' + String(nextCounter).padStart(6,'0');
+    const purchase = {...purchaseFields, id: purchaseDocRef.id, purchaseNo};
+    tx.set(metaDocRef, {inventory: inv, purchaseCounter: nextCounter}, {merge:true});
+    tx.set(purchaseDocRef, purchase);
+    return {purchase, inventory: inv, purchaseCounter: nextCounter};
+  });
+}
+
+/* Realtime listeners: any device's write shows up on every other device
+   within moments, with no manual refresh. */
+function subscribeMeta(){
+  metaRef().onSnapshot(snap=>{
+    const data = snap.exists ? snap.data() : {};
+    inventory = data.inventory || [];
+    heldBills = data.heldBills || [];
+    shift = data.shift || {start: Date.now()};
+    zHistory = data.zHistory || [];
+    invoiceCounter = data.invoiceCounter || 1000;
+    purchaseCounter = data.purchaseCounter || 1000;
+    vatInclusive = !!data.vatInclusive;
+    if(data.authHash) currentAuthHash = data.authHash;
+    document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
+    renderProducts(); renderCart(); renderInventory(); renderHeld(); renderReport();
+  }, e=>console.error('meta listener error', e));
+}
+function subscribeSales(){
+  salesCol().orderBy('time').onSnapshot(snap=>{
+    sales = snap.docs.map(d=>d.data());
+    renderInvoices(); renderReport();
+  }, e=>console.error('sales listener error', e));
+}
+function subscribeReturns(){
+  returnsCol().orderBy('time').onSnapshot(snap=>{
+    returns = snap.docs.map(d=>d.data());
+    renderInvoices(); renderReport();
+  }, e=>console.error('returns listener error', e));
+}
+function subscribePurchases(){
+  purchasesCol().orderBy('time').onSnapshot(snap=>{
+    purchases = snap.docs.map(d=>d.data());
+    renderPurchases();
+  }, e=>console.error('purchases listener error', e));
 }
 
 let inventory = [];
@@ -327,22 +603,32 @@ let currentAuthHash = null;
 let returns = [];
 let zHistory = [];
 let invoiceCounter = 1000;
+let purchases = [];
+let purchaseCounter = 1000;
+let vatInclusive = false;
 
 const VAT_RATE = 0.05;
 const money = n => 'AED ' + (Math.round(n*100)/100).toFixed(2);
 
 /* ---------- Init / seed ---------- */
 async function init(){
-  inventory = await sGet('inventory', null);
-  if(!inventory){
-    inventory = [
-      {id:cid(), name:'Espresso', barcode:genBarcode(), price:12, cost:4, stock:500, category:'Beverage'},
-      {id:cid(), name:'Croissant', barcode:genBarcode(), price:9, cost:3, stock:80, category:'Bakery'},
-      {id:cid(), name:'Bottled Water 500ml', barcode:genBarcode(), price:3, cost:1, stock:200, category:'Beverage'},
-      {id:cid(), name:'Club Sandwich', barcode:genBarcode(), price:28, cost:11, stock:40, category:'Food'},
-    ];
-    await sSet('inventory', inventory);
-  }
+  await seedInventoryIfNeeded();
+  subscribeMeta();
+  subscribeSales();
+  subscribeReturns();
+  subscribePurchases();
+  bindNav();
+  bindScanner();
+  setVatDefaultRange();
+  setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleString(); },1000);
+}
+async function seedInventoryIfNeeded(){
+  const defaults = [
+    {id:cid(), name:'Espresso', barcode:genBarcode(), price:12, cost:4, stock:500, category:'Beverage'},
+    {id:cid(), name:'Croissant', barcode:genBarcode(), price:9, cost:3, stock:80, category:'Bakery'},
+    {id:cid(), name:'Bottled Water 500ml', barcode:genBarcode(), price:3, cost:1, stock:200, category:'Beverage'},
+    {id:cid(), name:'Club Sandwich', barcode:genBarcode(), price:28, cost:11, stock:40, category:'Food'},
+  ];
   const catalog = [
     // Dairy & Eggs
     {name:'Al Ain Fresh Milk 1L', price:6.50, cost:4.20, category:'Dairy & Eggs'},
@@ -379,38 +665,22 @@ async function init(){
     {name:'Dettol Hand Soap 250ml', price:8.00, cost:5.00, category:'Personal Care'},
     {name:'Sunsilk Shampoo 400ml', price:15.00, cost:9.50, category:'Personal Care'},
   ];
-  const beforeCount = inventory.length;
-  inventory = inventory.filter(p => (p.category||'').toLowerCase() !== 'fruits & vegetables');
-  let changed = inventory.length !== beforeCount;
-  catalog.forEach(c=>{
-    const existing = inventory.find(p=>p.name.toLowerCase()===c.name.toLowerCase());
-    if(!existing){
-      inventory.push({id:cid(), name:c.name, barcode:genBarcode(), price:c.price, cost:c.cost, stock:100, category:c.category});
-      changed = true;
-    }else if(!existing.price || existing.price===0){
-      existing.price = c.price; existing.cost = c.cost; existing.category = c.category;
-      if(!existing.stock) existing.stock = 100;
-      changed = true;
-    }
-  });
-  if(changed) await sSet('inventory', inventory);
-
-  heldBills = await sGet('held-bills', []);
-  sales = await sGet('sales', []);
-  shift = await sGet('shift', {start: Date.now()});
-  zHistory = await sGet('zHistory', []);
-  returns = await sGet('returns', []);
-  invoiceCounter = await sGet('invoiceCounter', 1000);
-
-  document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
-  renderProducts();
-  renderCart();
-  renderInventory();
-  renderHeld();
-  bindNav();
-  bindScanner();
-  setVatDefaultRange();
-  setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleString(); },1000);
+  try{
+    await mutateInventory(inv=>{
+      if(inv.length===0) inv.push(...defaults);
+      const kept = inv.filter(p => (p.category||'').toLowerCase() !== 'fruits & vegetables');
+      inv.length = 0; inv.push(...kept);
+      catalog.forEach(c=>{
+        const existing = inv.find(p=>p.name.toLowerCase()===c.name.toLowerCase());
+        if(!existing){
+          inv.push({id:cid(), name:c.name, barcode:genBarcode(), price:c.price, cost:c.cost, stock:100, category:c.category});
+        }else if(!existing.price || existing.price===0){
+          existing.price = c.price; existing.cost = c.cost; existing.category = c.category;
+          if(!existing.stock) existing.stock = 100;
+        }
+      });
+    });
+  }catch(e){ console.error('seedInventoryIfNeeded failed', e); }
 }
 function cid(){ return 'p_' + Math.random().toString(36).slice(2,9); }
 function genBarcode(){
@@ -425,12 +695,13 @@ function bindNav(){
     b.addEventListener('click', ()=>{
       document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active'));
       b.classList.add('active');
-      ['sale','inventory','held','invoices','reports'].forEach(v=>{
+      ['sale','inventory','purchases','held','invoices','reports'].forEach(v=>{
         document.getElementById('view-'+v).style.display = (v===b.dataset.view)?'block':'none';
       });
       if(b.dataset.view==='reports') renderReport();
       if(b.dataset.view==='held') renderHeld();
       if(b.dataset.view==='invoices') renderInvoices();
+      if(b.dataset.view==='purchases') renderPurchases();
       if(b.dataset.view==='sale') document.getElementById('scanInput').focus();
     });
   });
@@ -445,7 +716,10 @@ function bindScanner(){
     if(e.key==='Enter'){ e.preventDefault(); handleScanSubmit(); }
   });
   document.addEventListener('click', e=>{
-    if(document.getElementById('view-sale').style.display!=='none' && !e.target.closest('.modal')){
+    if(document.getElementById('view-sale').style.display!=='none' &&
+       !e.target.closest('.modal') &&
+       !e.target.closest('input, select, textarea') &&
+       !document.querySelector('.modal')){
       input.focus();
     }
   });
@@ -455,58 +729,101 @@ function handleScanSubmit(){
   const input = document.getElementById('scanInput');
   const q = input.value.trim();
   if(!q) return;
+  input.value='';
   let item = inventory.find(p=>p.barcode===q);
   if(!item) item = inventory.find(p=>p.name.toLowerCase()===q.toLowerCase());
   if(!item) item = inventory.find(p=>p.name.toLowerCase().includes(q.toLowerCase()));
-  if(item){ addToCart(item); showToast(item.name+' added'); }
-  else showToast('No item found for "'+q+'"');
-  input.value='';
-  input.focus();
+  if(item) openAddItemModal(item.id);
+  else { showToast('No item found for "'+q+'"'); input.focus(); }
 }
 
 /* ---------- Products grid ---------- */
+let saleSortField = null;
+let saleSortDir = 1;
+function sortSaleBy(field){
+  if(saleSortField===field) saleSortDir *= -1;
+  else { saleSortField = field; saleSortDir = 1; }
+  renderProducts();
+}
+let prodSortable = null;
+function initProdSortable(){
+  if(prodSortable || typeof Sortable==='undefined') return;
+  prodSortable = new Sortable(document.getElementById('prodGrid'), {
+    animation: 150,
+    delay: 150,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 6,
+    ghostClass: 'drag-ghost',
+    dragClass: 'drag-active',
+    onEnd: evt=>{
+      if(evt.oldIndex===evt.newIndex) return;
+      const orderedIds = Array.from(document.getElementById('prodGrid').children).map(el=>el.dataset.id);
+      saleSortField = null; saleSortDir = 1;
+      persistCustomOrder(orderedIds);
+    }
+  });
+}
+async function persistCustomOrder(orderedIds){
+  try{
+    await mutateInventory(inv=>{
+      const byId = new Map(inv.map(p=>[p.id,p]));
+      const newInv = orderedIds.map(id=>byId.get(id)).filter(Boolean);
+      inv.forEach(p=>{ if(!orderedIds.includes(p.id)) newInv.push(p); });
+      inv.length = 0; inv.push(...newInv);
+    });
+  }catch(e){
+    console.error('persistCustomOrder failed', e);
+    showToast('Could not save item order — try again');
+  }
+}
 function renderProducts(){
   const grid = document.getElementById('prodGrid');
   grid.innerHTML='';
-  inventory.forEach(p=>{
+  sortItemsByField(inventory, saleSortField, saleSortDir).forEach(p=>{
     const div = document.createElement('button');
     div.className='prod-card';
+    div.dataset.id = p.id;
     div.onclick = ()=>{ openAddItemModal(p.id); };
     div.innerHTML = `<div class="nm">${esc(p.name)}</div>
       <div class="pr">${money(p.price)}</div>
-      <div class="st ${p.stock<=5?'low':''}">${p.stock<=0?'Out of stock':p.stock+' in stock'}</div>`;
+      <div class="st ${p.stock<=5?'low':''}">${p.stock<0?Math.abs(p.stock)+' short':p.stock===0?'Out of stock':p.stock+' in stock'}</div>`;
     grid.appendChild(div);
   });
+  document.querySelectorAll('.sort-chip').forEach(btn=>{
+    const f = btn.dataset.field;
+    btn.classList.toggle('active', saleSortField===f);
+    const ind = document.getElementById('saleSortInd_'+f);
+    if(ind) ind.textContent = saleSortField===f ? (saleSortDir===1?'▲':'▼') : '';
+  });
+  initProdSortable();
 }
 
 /* ---------- Cart ---------- */
-function addToCart(product){
-  if(product.stock<=0){ showToast(product.name+' is out of stock'); return; }
-  const row = cart.find(r=>r.id===product.id);
-  if(row){ if(row.qty < product.stock) row.qty++; else showToast('No more stock available'); }
-  else cart.push({id:product.id, name:product.name, barcode:product.barcode, price:product.price, qty:1});
-  renderCart();
-}
 function openAddItemModal(productId){
   const p = inventory.find(x=>x.id===productId);
   if(!p) return;
-  if(p.stock<=0){ showToast(p.name+' is out of stock'); return; }
   const existing = cart.find(r=>r.id===p.id);
   const root = document.getElementById('modalRoot');
   root.innerHTML = `<div class="modal-bg"><div class="modal">
     <h3>${esc(p.name)}</h3>
-    <div class="sub" style="margin-bottom:14px;">${p.stock} in stock</div>
+    <div class="sub" style="margin-bottom:14px;${p.stock<=0?'color:var(--red);font-weight:700;':''}">${p.stock<0?Math.abs(p.stock)+' short':p.stock===0?'Out of stock — will sell on backorder':p.stock+' in stock'}</div>
     <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">QUANTITY</label>
-    <input id="addQty" type="number" min="1" max="${p.stock}" value="${existing?existing.qty:1}"
+    <input id="addQty" type="text" inputmode="numeric" value="${existing?existing.qty:1}"
       style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:15px;margin-bottom:12px;">
     <label style="font-size:11px;color:var(--text-dim);font-weight:700;display:block;margin-bottom:4px;">PRICE (AED)</label>
-    <input id="addPrice" type="number" min="0" step="0.01" value="${existing?existing.price:p.price}"
+    <input id="addPrice" type="text" inputmode="decimal" value="${existing?existing.price:p.price}"
       style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:15px;margin-bottom:14px;">
     <div style="display:flex;gap:8px;">
       <button class="btn" style="flex:1;" onclick="closeModal()">Cancel</button>
       <button class="btn primary" style="flex:1;" onclick="confirmAddItem('${p.id}')">Add to bill</button>
     </div>
   </div></div>`;
+  document.getElementById('addQty').addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); document.getElementById('addPrice').focus(); }
+  });
+  document.getElementById('addPrice').addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); confirmAddItem(p.id); }
+  });
   document.getElementById('addQty').focus();
 }
 function confirmAddItem(productId){
@@ -515,7 +832,6 @@ function confirmAddItem(productId){
   let qty = parseInt(document.getElementById('addQty').value)||0;
   let price = parseFloat(document.getElementById('addPrice').value);
   if(qty<1){ showToast('Enter a quantity of at least 1'); return; }
-  if(qty>p.stock){ showToast('Only '+p.stock+' in stock'); qty = p.stock; }
   if(isNaN(price) || price<0) price = p.price;
   const row = cart.find(r=>r.id===p.id);
   if(row){ row.qty = qty; row.price = Math.round(price*100)/100; }
@@ -526,11 +842,9 @@ function confirmAddItem(productId){
 }
 function changeQty(id, delta){
   const row = cart.find(r=>r.id===id);
-  const prod = inventory.find(p=>p.id===id);
   if(!row) return;
   row.qty += delta;
   if(row.qty<=0){ cart = cart.filter(r=>r.id!==id); }
-  else if(prod && row.qty>prod.stock){ row.qty=prod.stock; showToast('No more stock available'); }
   renderCart();
 }
 function removeFromCart(id){ cart = cart.filter(r=>r.id!==id); renderCart(); }
@@ -543,16 +857,29 @@ function changeCartPrice(id, value){
   renderCart();
 }
 
+/* Computes VAT + total for a net-of-discount amount, either adding VAT on
+   top (exclusive) or extracting it from within (inclusive). */
+function computeVat(net, inclusive){
+  if(inclusive){
+    const taxable = net/(1+VAT_RATE);
+    return { vat: net-taxable, total: net };
+  }
+  const vat = net*VAT_RATE;
+  return { vat, total: net+vat };
+}
 function calcTotals(){
   const subtotal = cart.reduce((s,r)=>s+r.price*r.qty,0);
   const discType = document.getElementById('discType').value;
   const discValRaw = parseFloat(document.getElementById('discVal').value)||0;
   let discount = discType==='percent' ? subtotal*discValRaw/100 : discValRaw;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
-  return {subtotal,discount,vat,total};
+  const {vat, total} = computeVat(subtotal-discount, vatInclusive);
+  return {subtotal,discount,vat,total,vatInclusive};
+}
+function setVatInclusive(on){
+  vatInclusive = on;
+  renderCart();
+  sSet('vatInclusive', on);
 }
 
 function renderCart(){
@@ -568,7 +895,7 @@ function renderCart(){
         <div><div class="nm">${esc(r.name)}</div>
           <div style="display:flex;align-items:center;gap:3px;">
             <span class="bc">AED</span>
-            <input type="number" class="editPrice" min="0" step="0.01" value="${r.price}" data-id="${r.id}"
+            <input type="text" inputmode="decimal" class="editPrice" value="${r.price}" data-id="${r.id}"
               style="width:64px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;font-family:var(--mono);font-size:11px;">
           </div>
         </div>
@@ -586,9 +913,12 @@ function renderCart(){
     });
   }
   document.getElementById('itemCount').textContent = cart.reduce((s,r)=>s+r.qty,0)+' items';
+  const vatToggle = document.getElementById('vatInclusiveToggle');
+  if(vatToggle) vatToggle.checked = vatInclusive;
   const t = calcTotals();
   document.getElementById('tSub').textContent = money(t.subtotal);
   document.getElementById('tDisc').textContent = '− '+money(t.discount);
+  document.getElementById('tVatLbl').textContent = vatInclusive ? 'VAT (5%, included)' : 'VAT (5%)';
   document.getElementById('tVat').textContent = money(t.vat);
   document.getElementById('tGrand').textContent = money(t.total);
   const disabled = cart.length===0;
@@ -596,7 +926,17 @@ function renderCart(){
   document.getElementById('btnCard').disabled = disabled;
   document.getElementById('btnHold').disabled = disabled;
 }
-document.addEventListener('input', e=>{ if(e.target.id==='discVal'||e.target.id==='discType') renderCart(); });
+function onDiscountFieldChange(e){ if(e.target.id==='discVal'||e.target.id==='discType') renderCart(); }
+document.addEventListener('input', onDiscountFieldChange);
+document.addEventListener('change', onDiscountFieldChange);
+
+/* Highlight the full value of every number field (qty, price, discount,
+   cash tendered, etc.) as soon as it's focused, so typing a new figure
+   simply replaces it instead of appending on top of a mis-tap. Delegated
+   so it also covers inputs created later inside modals. */
+document.addEventListener('focusin', e=>{
+  if(e.target.matches && e.target.matches('input[inputmode="decimal"], input[inputmode="numeric"]')) e.target.select();
+});
 
 /* ---------- Hold bills ---------- */
 async function holdBill(){
@@ -653,7 +993,7 @@ function openPayment(method){
       <h3>Cash Payment</h3>
       <div class="trow" style="font-size:15px;margin-bottom:10px;"><span>Total due</span><span style="font-family:var(--mono);font-weight:800;">${money(t.total)}</span></div>
       <label style="font-size:11px;color:var(--text-dim);font-weight:700;">CASH TENDERED</label>
-      <input id="tendered" type="number" step="0.5" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:16px;margin:6px 0 10px 0;" placeholder="0.00">
+      <input id="tendered" type="text" inputmode="decimal" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:16px;margin:6px 0 10px 0;" placeholder="0.00">
       <div id="changeLine" class="trow" style="font-size:14px;"></div>
       <div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn" onclick="closeModal()" style="flex:1;">Cancel</button>
@@ -685,38 +1025,40 @@ function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
 async function completeSale(method){
   const t = calcTotals();
   const tendered = method==='cash' ? parseFloat(document.getElementById('tendered')?.value||0) : t.total;
-  invoiceCounter += 1;
-  await sSet('invoiceCounter', invoiceCounter);
-  const invoiceNo = 'INV-' + String(invoiceCounter).padStart(6,'0');
-  const sale = {
-    id: cid(), invoiceNo, time: Date.now(), items: JSON.parse(JSON.stringify(cart)),
-    subtotal:t.subtotal, discount:t.discount, vat:t.vat, total:t.total,
+  const saleFields = {
+    time: Date.now(), items: JSON.parse(JSON.stringify(cart)),
+    subtotal:t.subtotal, discount:t.discount, vat:t.vat, total:t.total, vatInclusive:t.vatInclusive,
     payment: method, tendered, change: method==='cash'? tendered-t.total : 0,
     status: 'completed'
   };
-  sales.push(sale);
-  await sSet('sales', sales);
-
-  // decrement stock
-  cart.forEach(r=>{
-    const p = inventory.find(x=>x.id===r.id);
-    if(p) p.stock = Math.max(0, p.stock-r.qty);
-  });
-  await sSet('inventory', inventory);
+  let result;
+  try{
+    result = await submitSale(cart, saleFields);
+  }catch(e){
+    console.error('completeSale failed', e);
+    showToast('Could not save sale — check your connection and try again');
+    return;
+  }
+  inventory = result.inventory;
+  invoiceCounter = result.invoiceCounter;
   renderProducts(); renderInventory();
 
   closeModal();
-  printReceipt(sale);
+  printReceipt(result.sale);
   cart=[]; document.getElementById('discVal').value=0; renderCart();
   showToast('Sale complete — '+money(t.total));
 }
 
 /* ---------- Receipt printing ---------- */
-function printReceipt(sale, isDuplicate){
-  const area = document.getElementById('printArea');
-  const rows = sale.items.map(r=>`<tr><td>${esc(r.name)} x${r.qty}</td><td style="text-align:right;">${money(r.price*r.qty)}</td></tr>`).join('');
-  area.innerHTML = `<div class="receipt">
-    <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br><span style="font-size:10px;">TRN 100362439000003</span><br>${new Date(sale.time).toLocaleString()}</div>
+function receiptInnerHtml(sale, isDuplicate, qrId){
+  const rows = sale.items.map(r=>`
+    <tr><td colspan="2"><b>${esc(r.name)}</b></td></tr>
+    <tr><td colspan="2" style="padding-left:8px;color:#333;">${money(r.price)} x ${r.qty} = ${money(r.price*r.qty)}</td></tr>`).join('');
+  return `
+    <div class="c"><b style="font-size:15px;">KHOORY TRADERS LLC</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b></div>
+    <div class="c" style="margin-top:4px;"><b>Tax Invoice</b><br><b dir="rtl">فاتورة ضريبية</b></div>
+    <div class="c" style="font-size:10px;margin-top:4px;">Address: Abu Dhabi, Nasr Street, Bldg. No.45<br>Tel: +97126340501<br>Email: khoorytraders@yahoo.com</div>
+    <div class="c" style="font-size:10px;margin-top:4px;">TRN 100362439000003<br>${new Date(sale.time).toLocaleString()}</div>
     ${isDuplicate ? '<div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** DUPLICATE COPY ***</div>' : ''}
     <div class="c" style="margin-top:4px;">Invoice No: <b>${sale.invoiceNo||'—'}</b></div>
     <hr>
@@ -725,25 +1067,86 @@ function printReceipt(sale, isDuplicate){
     <table>
       <tr><td>Subtotal</td><td style="text-align:right;">${money(sale.subtotal)}</td></tr>
       <tr><td>Discount</td><td style="text-align:right;">− ${money(sale.discount)}</td></tr>
-      <tr><td>VAT (5%)</td><td style="text-align:right;">${money(sale.vat)}</td></tr>
+      <tr><td>${sale.vatInclusive?'VAT (5%, included)':'VAT (5%)'}</td><td style="text-align:right;">${money(sale.vat)}</td></tr>
       <tr><td><b>TOTAL</b></td><td style="text-align:right;"><b>${money(sale.total)}</b></td></tr>
       <tr><td>Payment</td><td style="text-align:right;">${sale.payment.toUpperCase()}</td></tr>
       ${sale.payment==='cash'? `<tr><td>Tendered</td><td style="text-align:right;">${money(sale.tendered)}</td></tr><tr><td>Change</td><td style="text-align:right;">${money(sale.change)}</td></tr>`:''}
     </table>
     <hr><div class="c">Thank you</div>
-    <div class="c" style="margin-top:8px;"><svg id="invSvg"></svg></div>
-  </div>`;
-  if(sale.invoiceNo){
-    try{ JsBarcode("#invSvg", sale.invoiceNo, {format:"CODE128", width:1.6, height:38, fontSize:10, margin:2}); }catch(e){}
-  }
-  setTimeout(()=>window.print(), 80);
+    <div class="c" style="margin-top:10px;"><canvas id="${qrId}"></canvas>
+      <div style="margin-top:4px;font-weight:700;letter-spacing:.05em;">${sale.invoiceNo||'—'}</div>
+    </div>`;
+}
+function renderReceiptQr(canvasId, text){
+  if(!text) return;
+  try{
+    const el = document.getElementById(canvasId);
+    if(el && window.QRious) new QRious({element: el, value: text, size: 96, level: 'M'});
+  }catch(e){}
+}
+function printReceipt(sale, isDuplicate){
+  const area = document.getElementById('printArea');
+  area.innerHTML = `<div class="receipt">${receiptInnerHtml(sale, isDuplicate, 'invQr')}</div>`;
+  renderReceiptQr('invQr', sale.invoiceNo);
+  playPrintAnimation(receiptInnerHtml(sale, isDuplicate, 'invQrAnim'), ()=>{
+    renderReceiptQr('invQrAnim', sale.invoiceNo);
+  }).then(()=>{
+    window.print();
+    setTimeout(hidePrintAnimation, 2200);
+  });
+}
+
+/* ---------- Print animation (paper feeding out of a slot) ---------- */
+function playPrintAnimation(bodyHtml, onRendered){
+  const anim = document.getElementById('printAnim');
+  const paper = document.getElementById('printAnimPaper');
+  const body = document.getElementById('printAnimBody');
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  body.innerHTML = `<div class="receipt">${bodyHtml}</div>`;
+  if(onRendered) onRendered();
+  if(reduceMotion) return Promise.resolve();
+  return new Promise(resolve=>{
+    paper.classList.remove('feed');
+    anim.classList.add('show');
+    void paper.offsetHeight; // force reflow so the transition runs from translateY(-100%)
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ paper.classList.add('feed'); }); });
+    let done = false;
+    const finish = ()=>{ if(done) return; done = true; paper.removeEventListener('transitionend', finish); resolve(); };
+    paper.addEventListener('transitionend', finish);
+    setTimeout(finish, 1400);
+  });
+}
+function hidePrintAnimation(){
+  document.getElementById('printAnim').classList.remove('show');
+  document.getElementById('printAnimPaper').classList.remove('feed');
 }
 
 /* ---------- Inventory ---------- */
+/* ---------- Inventory sorting ---------- */
+function sortItemsByField(list, field, dir){
+  if(!field) return list;
+  return list.slice().sort((a,b)=>{
+    if(field==='name' || field==='barcode' || field==='category'){
+      const av = String(a[field]||'').toLowerCase(), bv = String(b[field]||'').toLowerCase();
+      return av<bv ? -dir : av>bv ? dir : 0;
+    }
+    return ((Number(a[field])||0) - (Number(b[field])||0)) * dir;
+  });
+}
+let invSortField = null;
+let invSortDir = 1; // 1 = ascending, -1 = descending
+function sortInventoryBy(field){
+  if(invSortField===field) invSortDir *= -1;
+  else { invSortField = field; invSortDir = 1; }
+  renderInventory();
+}
+function sortedInventory(){
+  return sortItemsByField(inventory, invSortField, invSortDir);
+}
 function renderInventory(){
   const tb = document.getElementById('invTable');
   tb.innerHTML='';
-  inventory.forEach(p=>{
+  sortedInventory().forEach(p=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="txt"><b>${esc(p.name)}</b></td>
       <td>${p.barcode}</td>
@@ -757,7 +1160,72 @@ function renderInventory(){
       </td>`;
     tb.appendChild(tr);
   });
+  ['name','barcode','category','price','stock'].forEach(f=>{
+    const el = document.getElementById('sortInd_'+f);
+    if(el) el.textContent = invSortField===f ? (invSortDir===1?'▲':'▼') : '';
+  });
 }
+
+/* ---------- Inventory sharing / export ---------- */
+function exportInventoryPDF(){
+  if(!window.jspdf){ showToast('PDF library failed to load — check your connection'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text('Khoory Traders — Inventory', 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Generated ' + new Date().toLocaleString() + ' · ' + inventory.length + ' items', 14, 21);
+  doc.autoTable({
+    startY: 26,
+    head: [['Item','Barcode','Category','Price','Stock']],
+    body: sortedInventory().map(p=>[p.name, p.barcode, p.category||'—', money(p.price), String(p.stock)]),
+    styles:{fontSize:8},
+    headStyles:{fillColor:[46,125,91]}
+  });
+  doc.save('khoory-inventory-'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+function exportInventoryExcel(){
+  if(!window.XLSX){ showToast('Excel library failed to load — check your connection'); return; }
+  const rows = sortedInventory().map(p=>({
+    Item:p.name, Barcode:p.barcode, Category:p.category||'', 'Price (AED)':p.price, 'Cost (AED)':p.cost||0, Stock:p.stock
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+  XLSX.writeFile(wb, 'khoory-inventory-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function inventorySummaryText(limit){
+  const list = sortedInventory();
+  const lines = list.slice(0, limit).map(p=>`${p.name} — ${money(p.price)} (Stock: ${p.stock})`);
+  let text = `Khoory Traders — Inventory (${new Date().toLocaleDateString()})\n${list.length} items\n\n` + lines.join('\n');
+  if(list.length > limit) text += `\n… and ${list.length-limit} more (see attached export)`;
+  return text;
+}
+function shareInventoryEmail(){
+  const subject = 'Khoory Traders — Inventory Export';
+  const body = inventorySummaryText(150) + '\n\nTip: use "Export PDF" or "Export Excel" first and attach the downloaded file for the full list.';
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function shareInventoryWhatsApp(){
+  const text = inventorySummaryText(60);
+  window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
+}
+function printInventory(){
+  const area = document.getElementById('printArea');
+  const rows = sortedInventory().map(p=>`<tr><td class="txt">${esc(p.name)}</td><td>${p.barcode}</td><td class="txt">${esc(p.category||'—')}</td><td class="num">${money(p.price)}</td><td class="num">${p.stock}</td></tr>`).join('');
+  area.className = 'a4';
+  area.innerHTML = `<div class="vat-report">
+    <h2>Khoory Traders — Inventory</h2>
+    <div class="meta">Generated ${new Date().toLocaleString()} · ${inventory.length} items</div>
+    <table>
+      <thead><tr><th>Item</th><th>Barcode</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  setTimeout(()=>{ window.print(); area.className=''; }, 80);
+}
+
 function openProductModal(id){
   const p = id ? inventory.find(x=>x.id===id) : {id:null,name:'',barcode:'',price:'',cost:'',stock:'',category:''};
   const root = document.getElementById('modalRoot');
@@ -769,9 +1237,9 @@ function openProductModal(id){
     <div class="form-grid">
       <div><label>Barcode</label><input id="f_barcode" value="${p.barcode}"></div>
       <div><label>Category</label><input id="f_category" value="${esc(p.category||'')}"></div>
-      <div><label>Price (AED)</label><input id="f_price" type="number" step="0.01" value="${p.price}"></div>
-      <div><label>Cost (AED)</label><input id="f_cost" type="number" step="0.01" value="${p.cost||0}"></div>
-      <div><label>Stock qty</label><input id="f_stock" type="number" value="${p.stock}"></div>
+      <div><label>Price (AED)</label><input id="f_price" type="text" inputmode="decimal" value="${p.price}"></div>
+      <div><label>Cost (AED)</label><input id="f_cost" type="text" inputmode="decimal" value="${p.cost||0}"></div>
+      <div><label>Stock qty</label><input id="f_stock" type="text" inputmode="numeric" value="${p.stock}"></div>
       <div><label>&nbsp;</label><button class="btn" style="width:100%;" onclick="document.getElementById('f_barcode').value=genBarcodeUI()">Generate barcode</button></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
@@ -789,26 +1257,39 @@ async function saveProduct(id){
   const cost = parseFloat(document.getElementById('f_cost').value)||0;
   const stock = parseInt(document.getElementById('f_stock').value)||0;
   if(!name){ showToast('Name is required'); return; }
-  if(id){
-    const p = inventory.find(x=>x.id===id);
-    Object.assign(p,{name,barcode,category,price,cost,stock});
-  }else{
-    inventory.push({id:cid(),name,barcode,category,price,cost,stock});
+  try{
+    await mutateInventory(inv=>{
+      if(id){
+        const p = inv.find(x=>x.id===id);
+        if(p) Object.assign(p,{name,barcode,category,price,cost,stock});
+      }else{
+        inv.push({id:cid(),name,barcode,category,price,cost,stock});
+      }
+    });
+  }catch(e){
+    console.error('saveProduct failed', e);
+    showToast('Could not save item — try again');
+    return;
   }
-  await sSet('inventory', inventory);
-  closeModal(); renderInventory(); renderProducts();
+  closeModal();
   showToast('Item saved');
 }
 async function deleteProduct(id){
-  inventory = inventory.filter(x=>x.id!==id);
-  await sSet('inventory', inventory);
-  renderInventory(); renderProducts();
+  try{
+    await mutateInventory(inv=>{
+      const idx = inv.findIndex(x=>x.id===id);
+      if(idx>=0) inv.splice(idx,1);
+    });
+  }catch(e){
+    console.error('deleteProduct failed', e);
+    showToast('Could not delete item — try again');
+  }
 }
 function printBarcodeLabel(id){
   const p = inventory.find(x=>x.id===id);
   const area = document.getElementById('printArea');
   area.innerHTML = `<div class="receipt c">
-    <div style="font-size:10px;color:#444;">KHOORY TRADERS · <span dir="rtl">متجر خوري</span></div>
+    <div style="font-size:10px;color:#444;">KHOORY TRADERS LLC · <span dir="rtl">متجر خوري</span></div>
     <div style="font-weight:700;margin-bottom:4px;">${esc(p.name)}</div>
     <svg id="lblSvg"></svg>
     <div>${money(p.price)}</div>
@@ -817,6 +1298,168 @@ function printBarcodeLabel(id){
     JsBarcode("#lblSvg", p.barcode, {format:"CODE128", width:2, height:50, fontSize:12, margin:4});
   }catch(e){}
   setTimeout(()=>window.print(),100);
+}
+
+/* ---------- Purchases (stock bought from suppliers) ---------- */
+let purchaseLineCount = 0;
+function openPurchaseModal(){
+  purchaseLineCount = 0;
+  const root = document.getElementById('modalRoot');
+  const nameOptions = inventory.map(p=>`<option value="${esc(p.name)}">`).join('');
+  root.innerHTML = `<div class="modal-bg"><div class="modal" style="width:520px;max-height:85vh;overflow:auto;">
+    <h3>Record Purchase</h3>
+    <datalist id="invNameList">${nameOptions}</datalist>
+    <div class="form-grid">
+      <div><label>Supplier</label><input id="pSupplier" placeholder="Supplier name"></div>
+      <div><label>Supplier TRN (optional)</label><input id="pSupplierTRN" placeholder="e.g. 100362439000003"></div>
+      <div><label>Reference (optional)</label><input id="pReference" placeholder="Supplier invoice #"></div>
+    </div>
+    <label style="font-size:11px;color:var(--text-dim);font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:6px;">Items</label>
+    <div id="purchaseLinesWrap"></div>
+    <button class="btn" style="margin:8px 0 12px 0;" onclick="addPurchaseLine()">+ Add line</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:10px;">
+      <input type="checkbox" id="pVat" checked onchange="recalcPurchaseModal()"> Include VAT (5%)
+    </label>
+    <div id="purchaseTotalsPreview" class="totals" style="border:1px solid var(--line);border-radius:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn" style="flex:1;" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" style="flex:1;" onclick="confirmPurchase()">Save purchase</button>
+    </div>
+  </div></div>`;
+  addPurchaseLine();
+  document.getElementById('pSupplier').focus();
+}
+function addPurchaseLine(){
+  const wrap = document.getElementById('purchaseLinesWrap');
+  const idx = purchaseLineCount++;
+  const row = document.createElement('div');
+  row.className = 'cart-row';
+  row.style.gridTemplateColumns = '1fr 64px 84px auto';
+  row.dataset.idx = idx;
+  row.innerHTML = `
+    <input class="pLineName" list="invNameList" placeholder="Item name" oninput="recalcPurchaseModal()" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;">
+    <input class="pLineQty" type="text" inputmode="numeric" value="1" oninput="recalcPurchaseModal()" style="width:64px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);text-align:center;">
+    <input class="pLineCost" type="text" inputmode="decimal" placeholder="0.00" oninput="recalcPurchaseModal()" style="width:84px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);">
+    <button class="rm" onclick="this.closest('.cart-row').remove(); recalcPurchaseModal();">✕</button>`;
+  wrap.appendChild(row);
+  recalcPurchaseModal();
+}
+function readPurchaseLines(){
+  return Array.from(document.querySelectorAll('#purchaseLinesWrap .cart-row')).map(row=>{
+    const name = row.querySelector('.pLineName').value.trim();
+    const qty = parseInt(row.querySelector('.pLineQty').value)||0;
+    const cost = parseFloat(row.querySelector('.pLineCost').value)||0;
+    return {name, qty, cost};
+  }).filter(l=>l.name && l.qty>0);
+}
+function recalcPurchaseModal(){
+  const lines = readPurchaseLines();
+  const subtotal = lines.reduce((s,l)=>s+l.qty*l.cost,0);
+  const vatOn = document.getElementById('pVat')?.checked;
+  const vat = vatOn ? subtotal*VAT_RATE : 0;
+  const total = subtotal+vat;
+  const el = document.getElementById('purchaseTotalsPreview');
+  if(el) el.innerHTML = `
+    <div class="trow"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    <div class="trow"><span>VAT</span><span>${money(vat)}</span></div>
+    <div class="trow grand"><span>Total</span><span>${money(total)}</span></div>`;
+}
+async function confirmPurchase(){
+  const supplier = document.getElementById('pSupplier').value.trim();
+  const supplierTRN = document.getElementById('pSupplierTRN').value.trim();
+  const reference = document.getElementById('pReference').value.trim();
+  const lines = readPurchaseLines();
+  if(!supplier){ showToast('Enter a supplier name'); return; }
+  if(lines.length===0){ showToast('Add at least one item with a quantity'); return; }
+  const vatOn = document.getElementById('pVat').checked;
+  const subtotal = lines.reduce((s,l)=>s+l.qty*l.cost,0);
+  const vat = vatOn ? subtotal*VAT_RATE : 0;
+  const total = subtotal+vat;
+  const purchaseFields = { time: Date.now(), supplier, supplierTRN, reference, items: lines, subtotal, vat, total, vatIncluded: vatOn };
+  let result;
+  try{
+    result = await submitPurchase(purchaseFields);
+  }catch(e){
+    console.error('confirmPurchase failed', e);
+    showToast('Could not save purchase — try again');
+    return;
+  }
+  inventory = result.inventory;
+  purchaseCounter = result.purchaseCounter;
+  renderProducts(); renderInventory();
+  closeModal();
+  showToast('Purchase recorded — '+money(total));
+}
+function filteredPurchases(){
+  const q = (document.getElementById('purchaseSearch')?.value||'').trim().toLowerCase();
+  let list = purchases.slice().reverse();
+  if(q) list = list.filter(p=>(p.purchaseNo||'').toLowerCase().includes(q) || (p.supplier||'').toLowerCase().includes(q) || (p.supplierTRN||'').toLowerCase().includes(q));
+  return list;
+}
+function renderPurchases(){
+  const tb = document.getElementById('purchasesTable');
+  if(!tb) return;
+  const list = filteredPurchases();
+  tb.innerHTML = list.map(p=>`<tr>
+    <td>${p.purchaseNo||'—'}</td>
+    <td class="txt">${new Date(p.time).toLocaleString()}</td>
+    <td class="txt"><b>${esc(p.supplier||'—')}</b>${p.supplierTRN?`<div class="bc">TRN ${esc(p.supplierTRN)}</div>`:''}</td>
+    <td>${p.items.reduce((s,i)=>s+i.qty,0)}</td>
+    <td>${money(p.total)}</td>
+    <td class="txt" style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn" onclick="printPurchase('${p.id}')">Print</button>
+      <button class="btn danger" onclick="deletePurchase('${p.id}')">Delete</button>
+    </td>
+  </tr>`).join('') || `<tr><td colspan="6" class="txt" style="text-align:center;color:var(--text-dim);">No purchases recorded yet.</td></tr>`;
+}
+async function deletePurchase(id){
+  const purchase = purchases.find(x=>x.id===id);
+  if(!purchase) return;
+  if(!confirm(`Delete purchase ${purchase.purchaseNo}? Stock it added will be reversed (down to a minimum of 0). This does not undo any sales already made from that stock.`)) return;
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const purchaseDocRef = purchasesCol().doc(purchase.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      purchase.items.forEach(line=>{
+        const p = inv.find(x=>x.name.toLowerCase()===line.name.toLowerCase());
+        if(p) p.stock = Math.max(0, p.stock - line.qty);
+      });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.delete(purchaseDocRef);
+    });
+  }catch(e){
+    console.error('deletePurchase failed', e);
+    showToast('Could not delete purchase — try again');
+    return;
+  }
+  showToast('Purchase deleted and stock adjusted');
+}
+function printPurchase(id){
+  const p = purchases.find(x=>x.id===id);
+  if(!p) return;
+  const area = document.getElementById('printArea');
+  const rows = p.items.map(i=>`<tr><td>${esc(i.name)} x${i.qty}</td><td style="text-align:right;">${money(i.cost*i.qty)}</td></tr>`).join('');
+  area.className = '';
+  area.innerHTML = `<div class="receipt">
+    <div class="c"><b style="font-size:15px;">KHOORY TRADERS LLC</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br>${new Date(p.time).toLocaleString()}</div>
+    <div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** PURCHASE RECORD ***</div>
+    <div class="c" style="margin-top:4px;">Purchase No: <b>${p.purchaseNo}</b>${p.reference?'<br>Ref: '+esc(p.reference):''}</div>
+    <div class="c">Supplier: ${esc(p.supplier||'—')}${p.supplierTRN?'<br>Supplier TRN: '+esc(p.supplierTRN):''}</div>
+    <hr>
+    <table>${rows}</table>
+    <hr>
+    <table>
+      <tr><td>Subtotal</td><td style="text-align:right;">${money(p.subtotal)}</td></tr>
+      <tr><td>VAT</td><td style="text-align:right;">${money(p.vat)}</td></tr>
+      <tr><td><b>TOTAL</b></td><td style="text-align:right;"><b>${money(p.total)}</b></td></tr>
+    </table>
+    <hr><div class="c">Purchase record — not a sale</div>
+  </div>`;
+  setTimeout(()=>window.print(), 80);
 }
 
 /* ---------- Ledger helpers (cancellations & returns net out totals) ---------- */
@@ -903,20 +1546,42 @@ async function runZReport(){
   const totalSales = sSum.total - rSum.total;
   const cash = list.filter(x=>x.payment==='cash').reduce((s,x)=>s+x.total,0);
   const card = list.filter(x=>x.payment==='card').reduce((s,x)=>s+x.total,0);
-  zHistory.push({closedAt:Date.now(), count:list.length, total:totalSales, cash, card, shiftStart:shift.start});
-  await sSet('zHistory', zHistory);
-  shift = {start: Date.now()};
-  await sSet('shift', shift);
-  document.getElementById('shiftStartLbl').textContent = new Date(shift.start).toLocaleString();
-  renderReport();
+  const zEntry = {closedAt:Date.now(), count:list.length, total:totalSales, cash, card, shiftStart:shift.start};
+  const newShift = {start: Date.now()};
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const hist = (data.zHistory||[]).slice();
+      hist.push(zEntry);
+      tx.set(metaDocRef, {zHistory: hist, shift: newShift}, {merge:true});
+    });
+  }catch(e){
+    console.error('runZReport failed', e);
+    showToast('Could not close shift — try again');
+    return;
+  }
   showToast('Z report saved — shift closed');
 }
 
 /* ---------- Invoices (all-time, searchable, reprint / edit / cancel / return) ---------- */
-function renderInvoices(){
+function filteredInvoices(){
   const q = (document.getElementById('invSearch')?.value||'').trim().toLowerCase();
   let list = sales.slice().reverse();
   if(q) list = list.filter(s=>(s.invoiceNo||'').toLowerCase().includes(q));
+  return list;
+}
+function statusText(sale){
+  if(sale.status==='cancelled') return 'Cancelled';
+  const rs = saleReturnStatus(sale);
+  if(rs==='full') return 'Returned';
+  if(rs==='partial') return 'Partial return';
+  return 'Completed';
+}
+function renderInvoices(){
+  const list = filteredInvoices();
   const tb = document.getElementById('invoicesTable');
   tb.innerHTML = list.map(s=>`<tr>
     <td>${s.invoiceNo||'—'}</td>
@@ -928,6 +1593,72 @@ function renderInvoices(){
     <td class="txt">${actionButtons(s)}</td>
   </tr>`).join('') || `<tr><td colspan="7" class="txt" style="text-align:center;color:var(--text-dim);">No matching invoices.</td></tr>`;
 }
+
+/* ---------- Invoices sharing / export ---------- */
+function exportInvoicesPDF(){
+  if(!window.jspdf){ showToast('PDF library failed to load — check your connection'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const list = filteredInvoices();
+  doc.setFontSize(14);
+  doc.text('Khoory Traders — Invoices', 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Generated ' + new Date().toLocaleString() + ' · ' + list.length + ' invoices', 14, 21);
+  doc.autoTable({
+    startY: 26,
+    head: [['Invoice No.','Date','Items','Total','Payment','Status']],
+    body: list.map(s=>[s.invoiceNo||'—', new Date(s.time).toLocaleString(), String(s.items.reduce((a,i)=>a+i.qty,0)), money(s.total), s.payment.toUpperCase(), statusText(s)]),
+    styles:{fontSize:8},
+    headStyles:{fillColor:[46,125,91]}
+  });
+  doc.save('khoory-invoices-'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+function exportInvoicesExcel(){
+  if(!window.XLSX){ showToast('Excel library failed to load — check your connection'); return; }
+  const list = filteredInvoices();
+  const rows = list.map(s=>({
+    'Invoice No.': s.invoiceNo||'', Date: new Date(s.time).toLocaleString(), Items: s.items.reduce((a,i)=>a+i.qty,0),
+    'Subtotal (AED)': s.subtotal, 'Discount (AED)': s.discount, 'VAT (AED)': s.vat, 'Total (AED)': s.total,
+    Payment: s.payment.toUpperCase(), Status: statusText(s)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
+  XLSX.writeFile(wb, 'khoory-invoices-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function invoicesSummaryText(limit){
+  const list = filteredInvoices();
+  const lines = list.slice(0, limit).map(s=>`${s.invoiceNo||'—'} — ${new Date(s.time).toLocaleDateString()} — ${money(s.total)} (${statusText(s)})`);
+  let text = `Khoory Traders — Invoices (${new Date().toLocaleDateString()})\n${list.length} invoices\n\n` + lines.join('\n');
+  if(list.length > limit) text += `\n… and ${list.length-limit} more (see attached export)`;
+  return text;
+}
+function shareInvoicesEmail(){
+  const subject = 'Khoory Traders — Invoices Export';
+  const body = invoicesSummaryText(150) + '\n\nTip: use "Export PDF" or "Export Excel" first and attach the downloaded file for the full list.';
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function shareInvoicesWhatsApp(){
+  const text = invoicesSummaryText(60);
+  window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
+}
+function printInvoicesList(){
+  const area = document.getElementById('printArea');
+  const list = filteredInvoices();
+  const rows = list.map(s=>`<tr><td class="txt">${s.invoiceNo||'—'}</td><td class="txt">${new Date(s.time).toLocaleString()}</td><td class="num">${s.items.reduce((a,i)=>a+i.qty,0)}</td><td class="num">${money(s.total)}</td><td class="txt">${s.payment.toUpperCase()}</td><td class="txt">${statusText(s)}</td></tr>`).join('');
+  area.className = 'a4';
+  area.innerHTML = `<div class="vat-report">
+    <h2>Khoory Traders — Invoices</h2>
+    <div class="meta">Generated ${new Date().toLocaleString()} · ${list.length} invoices</div>
+    <table>
+      <thead><tr><th>Invoice No.</th><th>Date</th><th class="num">Items</th><th class="num">Total</th><th>Payment</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  setTimeout(()=>{ window.print(); area.className=''; }, 80);
+}
+
 function reprintInvoice(id){
   const sale = sales.find(s=>s.id===id);
   if(!sale) return;
@@ -939,17 +1670,29 @@ async function cancelSale(id){
   const sale = sales.find(s=>s.id===id);
   if(!sale || sale.status==='cancelled') return;
   if(!confirm(`Cancel invoice ${sale.invoiceNo}? Stock for its items will be restored.`)) return;
+  const restocks = [];
   sale.items.forEach(r=>{
     const already = returnedQtyFor(sale.id, r.id);
     const restock = r.qty - already;
-    const p = inventory.find(x=>x.id===r.id);
-    if(p && restock>0) p.stock += restock;
+    if(restock>0) restocks.push({id:r.id, qty:restock});
   });
-  sale.status = 'cancelled';
-  sale.cancelledAt = Date.now();
-  await sSet('sales', sales);
-  await sSet('inventory', inventory);
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const saleDocRef = salesCol().doc(sale.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      restocks.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.update(saleDocRef, {status:'cancelled', cancelledAt: Date.now()});
+    });
+  }catch(e){
+    console.error('cancelSale failed', e);
+    showToast('Could not cancel invoice — try again');
+    return;
+  }
   showToast('Invoice cancelled and stock restored');
 }
 
@@ -961,7 +1704,7 @@ function openEditModal(id){
   const root = document.getElementById('modalRoot');
   const rowsHtml = sale.items.map((r,i)=>`<div class="cart-row" style="grid-template-columns:1fr auto auto;padding:8px 0;">
       <div><div class="nm">${esc(r.name)}</div><div class="bc">${money(r.price)} each</div></div>
-      <input type="number" min="0" value="${r.qty}" class="editQty" data-idx="${i}" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);">
+      <input type="text" inputmode="numeric" value="${r.qty}" class="editQty" data-idx="${i}" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);">
       <button class="rm" onclick="this.closest('.cart-row').remove(); recalcEditModal('${sale.id}')">✕</button>
     </div>`).join('');
   root.innerHTML = `<div class="modal-bg"><div class="modal" style="width:420px;">
@@ -969,7 +1712,7 @@ function openEditModal(id){
     <div id="editItemsWrap">${rowsHtml}</div>
     <div style="display:flex;gap:6px;align-items:center;margin:10px 0;">
       <span style="font-size:12px;font-weight:700;color:var(--text-dim);">Discount (AED)</span>
-      <input id="editDisc" type="number" min="0" value="${sale.discount}" style="width:90px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);" oninput="recalcEditModal('${sale.id}')">
+      <input id="editDisc" type="text" inputmode="decimal" value="${sale.discount}" style="width:90px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);" oninput="recalcEditModal('${sale.id}')">
     </div>
     <div id="editTotalsPreview" class="totals" style="border:1px solid var(--line);border-radius:10px;"></div>
     <div style="display:flex;gap:8px;margin-top:14px;">
@@ -996,13 +1739,11 @@ function recalcEditModal(saleId){
   const subtotal = items.reduce((s,r)=>s+r.price*r.qty,0);
   let discount = parseFloat(document.getElementById('editDisc').value)||0;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
   document.getElementById('editTotalsPreview').innerHTML = `
     <div class="trow"><span>Subtotal</span><span>${money(subtotal)}</span></div>
     <div class="trow"><span>Discount</span><span>− ${money(discount)}</span></div>
-    <div class="trow"><span>VAT (5%)</span><span>${money(vat)}</span></div>
+    <div class="trow"><span>${sale.vatInclusive?'VAT (5%, included)':'VAT (5%)'}</span><span>${money(vat)}</span></div>
     <div class="trow grand"><span>Total</span><span>${money(total)}</span></div>`;
 }
 async function saveEditedSale(id){
@@ -1010,21 +1751,30 @@ async function saveEditedSale(id){
   if(!sale) return;
   const newItems = readEditModalItems(sale);
   if(newItems.length===0){ showToast('An invoice needs at least one item — cancel it instead'); return; }
-  // restock old quantities, then deduct new quantities
-  sale.items.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
-  newItems.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock = Math.max(0,p.stock-r.qty); });
   const subtotal = newItems.reduce((s,r)=>s+r.price*r.qty,0);
   let discount = parseFloat(document.getElementById('editDisc').value)||0;
   discount = Math.min(discount, subtotal);
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
-  sale.items = newItems; sale.subtotal=subtotal; sale.discount=discount; sale.vat=vat; sale.total=total;
-  sale.editedAt = Date.now();
-  await sSet('sales', sales);
-  await sSet('inventory', inventory);
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const saleDocRef = salesCol().doc(sale.id);
+    await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      // restock old quantities, then deduct new quantities
+      sale.items.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      newItems.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock = Math.max(0,p.stock-r.qty); });
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.update(saleDocRef, {items:newItems, subtotal, discount, vat, total, editedAt: Date.now()});
+    });
+  }catch(e){
+    console.error('saveEditedSale failed', e);
+    showToast('Could not save changes — try again');
+    return;
+  }
   closeModal();
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
   showToast('Invoice updated');
 }
 
@@ -1038,7 +1788,7 @@ function openReturnModal(id){
     const max = r.qty - already;
     return `<div class="cart-row" style="grid-template-columns:1fr auto;padding:8px 0;">
       <div><div class="nm">${esc(r.name)}</div><div class="bc">${money(r.price)} each · ${max} returnable</div></div>
-      <input type="number" min="0" max="${max}" value="0" class="retQty" data-idx="${i}" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);" ${max<=0?'disabled':''}>
+      <input type="text" inputmode="numeric" value="0" class="retQty" data-idx="${i}" data-max="${max}" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);" ${max<=0?'disabled':''}>
     </div>`;
   }).join('');
   root.innerHTML = `<div class="modal-bg"><div class="modal" style="width:420px;">
@@ -1059,33 +1809,45 @@ async function confirmReturn(id){
   const retItems = [];
   rows.forEach(row=>{
     const idx = row.dataset.idx;
-    const qty = parseInt(row.value)||0;
+    const max = parseInt(row.dataset.max)||0;
+    const qty = Math.min(parseInt(row.value)||0, max);
     if(qty>0) retItems.push({...sale.items[idx], qty});
   });
   if(retItems.length===0){ showToast('Enter a quantity to return'); return; }
   const subtotal = retItems.reduce((s,r)=>s+r.price*r.qty,0);
   const discount = subtotal*discountRate;
-  const taxable = subtotal-discount;
-  const vat = taxable*VAT_RATE;
-  const total = taxable+vat;
-  const retCount = returns.filter(r=>r.saleId===sale.id).length+1;
-  const ret = { id:cid(), saleId:sale.id, invoiceNo: sale.invoiceNo+'-R'+retCount, originalInvoiceNo: sale.invoiceNo,
-    time:Date.now(), items:retItems, subtotal, discount, vat, total, payment: sale.payment };
-  returns.push(ret);
-  await sSet('returns', returns);
-  retItems.forEach(r=>{ const p = inventory.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
-  await sSet('inventory', inventory);
+  const {vat, total} = computeVat(subtotal-discount, !!sale.vatInclusive);
+  let ret;
+  try{
+    await authReady;
+    const metaDocRef = metaRef();
+    const retDocRef = returnsCol().doc();
+    ret = await db.runTransaction(async tx=>{
+      const snap = await tx.get(metaDocRef);
+      const data = snap.exists ? snap.data() : {};
+      const inv = (data.inventory||[]).map(p=>({...p}));
+      retItems.forEach(r=>{ const p = inv.find(x=>x.id===r.id); if(p) p.stock += r.qty; });
+      const r = { id: retDocRef.id, saleId: sale.id, invoiceNo: sale.invoiceNo+'-R'+retDocRef.id.slice(-5).toUpperCase(), originalInvoiceNo: sale.invoiceNo,
+        time: Date.now(), items: retItems, subtotal, discount, vat, total, payment: sale.payment };
+      tx.set(metaDocRef, {inventory: inv}, {merge:true});
+      tx.set(retDocRef, r);
+      return r;
+    });
+  }catch(e){
+    console.error('confirmReturn failed', e);
+    showToast('Could not process return — try again');
+    return;
+  }
   closeModal();
-  renderProducts(); renderInventory(); renderInvoices(); renderReport();
   printReturnReceipt(ret);
-  showToast('Return processed — '+money(total)+' credited');
+  showToast('Return processed — '+money(ret.total)+' credited');
 }
 function printReturnReceipt(ret){
   const area = document.getElementById('printArea');
   const rows = ret.items.map(r=>`<tr><td>${esc(r.name)} x${r.qty}</td><td style="text-align:right;">${money(r.price*r.qty)}</td></tr>`).join('');
   area.className = '';
   area.innerHTML = `<div class="receipt">
-    <div class="c"><b style="font-size:15px;">KHOORY TRADERS</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br><span style="font-size:10px;">TRN 100362439000003</span><br>${new Date(ret.time).toLocaleString()}</div>
+    <div class="c"><b style="font-size:15px;">KHOORY TRADERS LLC</b><br><b style="font-size:13px;" dir="rtl">متجر خوري</b><br><span style="font-size:10px;">TRN 100362439000003</span><br>${new Date(ret.time).toLocaleString()}</div>
     <div class="c" style="font-weight:700;letter-spacing:.08em;margin-top:4px;">*** RETURN / CREDIT NOTE ***</div>
     <div class="c" style="margin-top:4px;">Return No: <b>${ret.invoiceNo}</b><br>Ref. Invoice: ${ret.originalInvoiceNo}</div>
     <hr>
@@ -1118,14 +1880,16 @@ function generateVat201(){
   const to = new Date(toVal+'T23:59:59').getTime();
   const list = sales.filter(s=>s.time>=from && s.time<=to && s.status!=='cancelled');
   const retList = returns.filter(r=>r.time>=from && r.time<=to);
+  const purList = purchases.filter(p=>p.time>=from && p.time<=to);
 
-  const salesTaxable = list.reduce((s,x)=>s+(x.subtotal-x.discount),0);
+  const salesTaxable = list.reduce((s,x)=>s+(x.total-x.vat),0); // total-vat is mode-agnostic (works whether the sale's prices were VAT-inclusive or exclusive)
   const salesVat = list.reduce((s,x)=>s+x.vat,0);
-  const retTaxable = retList.reduce((s,x)=>s+(x.subtotal-x.discount),0);
+  const retTaxable = retList.reduce((s,x)=>s+(x.total-x.vat),0);
   const retVat = retList.reduce((s,x)=>s+x.vat,0);
   const taxableValue = salesTaxable - retTaxable; // net of discount, returns, excl. VAT
   const outputVat = salesVat - retVat;
-  const inputVat = 0; // purchases/expenses are not tracked by this till — enter manually if applicable
+  const purchasesTaxable = purList.reduce((s,x)=>s+x.subtotal,0);
+  const inputVat = purList.reduce((s,x)=>s+x.vat,0); // from recorded purchases in this period
   const payable = outputVat - inputVat;
 
   const emirates = ['Abu Dhabi','Dubai','Sharjah','Ajman','Umm Al Quwain','Ras Al Khaimah','Fujairah'];
@@ -1161,12 +1925,12 @@ function generateVat201(){
     <h3>Input tax (Box 9–11)</h3>
     <table>
       <tbody>
-        <tr><td style="width:60%;">Box 9 — Standard rated expenses</td><td class="num" style="width:20%;">0.00</td><td class="num" style="width:20%;">0.00</td></tr>
+        <tr><td style="width:60%;">Box 9 — Standard rated expenses</td><td class="num" style="width:20%;">${purchasesTaxable.toFixed(2)}</td><td class="num" style="width:20%;">${inputVat.toFixed(2)}</td></tr>
         <tr><td>Box 10 — Supplies subject to reverse charge (input side)</td><td class="num">0.00</td><td class="num">0.00</td></tr>
-        <tr class="total"><td>Box 11 — Total recoverable input tax</td><td class="num">0.00</td><td class="num">${inputVat.toFixed(2)}</td></tr>
+        <tr class="total"><td>Box 11 — Total recoverable input tax</td><td class="num">${purchasesTaxable.toFixed(2)}</td><td class="num">${inputVat.toFixed(2)}</td></tr>
       </tbody>
     </table>
-    <div class="meta" style="margin-top:-10px;">Note: this till records sales only — purchase/expense input VAT isn't tracked here and must be added manually before filing.</div>
+    <div class="meta" style="margin-top:-10px;">Box 9 is drawn from ${purList.length} purchase(s) recorded in this period (${money(purchasesTaxable)} net, ${money(inputVat)} VAT). Purchases without VAT (unchecked "Include VAT") contribute 0 here. Any other expenses not entered as a Purchase must still be added manually.</div>
 
     <h3>Net VAT due</h3>
     <table>
@@ -1240,6 +2004,30 @@ async function confirmSetupPassword(){
   await sSet('auth-hash', simpleHash(p1));
   unlockApp();
 }
+/* A single shared "lamp" (the pointer) lights every pin-cell's edge in
+   sync - the offset is stored on #authGate (which survives screen
+   swaps) so it cascades to whichever cells are on screen. */
+function bindAuthLamp(){
+  const gate = document.getElementById('authGate');
+  document.addEventListener('mousemove', e=>{
+    if(!gate || gate.style.display==='none') return;
+    const r = gate.getBoundingClientRect();
+    const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left+r.width/2)) / (r.width/2)));
+    const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top+r.height/2)) / (r.height/2)));
+    gate.style.setProperty('--lx', dx.toFixed(3));
+    gate.style.setProperty('--ly', dy.toFixed(3));
+  });
+}
+function renderPinCells(value){
+  const row = document.getElementById('pinRow');
+  if(!row) return;
+  const count = Math.max(4, Math.min(12, value.length + (value.length<12?1:0)));
+  row.innerHTML = Array.from({length:count}, (_,i)=>{
+    const filled = i < value.length;
+    const active = i === value.length;
+    return `<div class="pin-cell${filled?' filled':''}${active?' active':''}"></div>`;
+  }).join('');
+}
 function renderLoginScreen(){
   const gate = document.getElementById('authGate');
   gate.innerHTML = `<div class="auth-box">
@@ -1248,22 +2036,68 @@ function renderLoginScreen(){
     <div class="ar" dir="rtl">متجر خوري</div>
     <div class="sub">Enter password to unlock the till</div>
     <div class="auth-err" id="authErr"></div>
-    <input id="loginPw" type="password" placeholder="Password" autocomplete="current-password">
-    <button class="btn primary" onclick="attemptLogin()">Unlock</button>
+    <div class="pin-wrap">
+      <input id="loginPw" type="password" autocomplete="current-password">
+      <div class="pin-row" id="pinRow"></div>
+    </div>
+    <button class="btn primary" id="unlockBtn" onclick="attemptLogin()">Unlock</button>
   </div>`;
   const pw = document.getElementById('loginPw');
+  renderPinCells('');
   pw.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(); });
+  pw.addEventListener('input', ()=>{
+    renderPinCells(pw.value);
+    if(pw.value && simpleHash(pw.value)===currentAuthHash) unlockApp();
+  });
   pw.focus();
 }
 async function attemptLogin(){
   const val = document.getElementById('loginPw').value;
   if(simpleHash(val)===currentAuthHash) unlockApp();
-  else document.getElementById('authErr').textContent = 'Incorrect password';
+  else{
+    document.getElementById('authErr').textContent = 'Incorrect password';
+    const box = document.querySelector('.auth-box');
+    if(box){
+      box.classList.remove('shake'); void box.offsetWidth;
+      box.classList.add('shake');
+    }
+    const pw = document.getElementById('loginPw');
+    if(pw){ pw.value=''; renderPinCells(''); pw.focus(); }
+  }
 }
 function unlockApp(){
-  document.getElementById('authGate').style.display='none';
-  document.getElementById('appRoot').style.visibility='visible';
-  init();
+  const gate = document.getElementById('authGate');
+  const box = gate.querySelector('.auth-box');
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reveal = ()=>{
+    gate.style.display='none';
+    const appRoot = document.getElementById('appRoot');
+    appRoot.style.visibility='visible';
+    appRoot.classList.add('revealing');
+    init();
+  };
+  if(!box || reduceMotion){ reveal(); return; }
+  const showCheckmark = ()=>{
+    box.innerHTML = `
+      <svg class="auth-check" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="27" stroke="#2E7D5B" stroke-width="4"/>
+        <path d="M20 33 L28 41 L44 24" stroke="#2E7D5B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h2>Welcome back</h2>
+      <div class="sub">Unlocking the till…</div>`;
+    setTimeout(()=>{
+      gate.classList.add('fading');
+      setTimeout(reveal, 460);
+    }, 700);
+  };
+  const btn = document.getElementById('unlockBtn');
+  if(btn){
+    btn.textContent = 'Verifying…';
+    btn.classList.add('verifying');
+    setTimeout(showCheckmark, 380);
+  }else{
+    showCheckmark();
+  }
 }
 function lockApp(){
   location.reload();
@@ -1296,6 +2130,7 @@ async function saveNewPassword(){
   showToast('Password updated');
 }
 
+bindAuthLamp();
 bootAuth();
 </script>
 </body>
