@@ -1,0 +1,15 @@
+{
+  "name": "Khoory Traders LLC — Point of Sale",
+  "short_name": "Khoory Traders",
+  "description": "Point of Sale app for Khoory Traders LLC / خوري ترايدرز ذ.م.م",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EEF1EC",
+  "theme_color": "#2E7D5B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
